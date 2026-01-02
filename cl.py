@@ -200,7 +200,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     # Create Business Pivot
     Business_Pivot = pd.pivot_table(
         Business_Report,
-        index="SKU",
+        index=["SKU","(Parent) ASIN"],
         values="Total Sales Order",
         aggfunc="sum",
         margins=True,
@@ -255,7 +255,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     
     # Reorder columns
     Business_Pivot = Business_Pivot[[
-        "SKU", "Vendor SKU Codes", "Brand", "Product Name", 
+        "SKU","(Parent) ASIN", "Vendor SKU Codes", "Brand", "Product Name", 
         "Brand Manager", "Total Sales Order", "CP"
     ]]
     
@@ -365,7 +365,7 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     # Create Inventory Report Pivot
     Inventory_Report_Pivot = pd.pivot_table(
         Inventory,
-        index="sku",
+        index=["sku","asin"],
         values=["afn-fulfillable-quantity", "afn-reserved-quantity"],
         aggfunc="sum"
     )
@@ -397,7 +397,7 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     
     # Reorder columns
     Inventory_Report_Pivot = Inventory_Report_Pivot[[
-        "sku", "Vendor SKU Codes", "Brand", "Brand Manager", 
+        "sku","asin", "Vendor SKU Codes", "Brand", "Brand Manager", 
         "Product Name", "afn-fulfillable-quantity", 
         "afn-reserved-quantity", "Total Stock", "CP"
     ]]
