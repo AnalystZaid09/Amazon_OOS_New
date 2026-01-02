@@ -316,7 +316,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     
     # Create OOS Report
     OOS_Report = Business_Pivot[Business_Pivot["SKU"] != "Grand Total"].copy()
-    OOS_Report = OOS_Report[OOS_Report["Total Stock"] == 0].reset_index(drop=True)
+    OOS_Report = OOS_Report[OOS_Report["afn-fulfillable-qty"] == 0].reset_index(drop=True)
     
     # Ensure numeric columns for pivot
     OOS_Report["CP"] = pd.to_numeric(OOS_Report["CP"], errors="coerce").fillna(0)
@@ -453,7 +453,7 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     
     # Create OOS Inventory
     OOS_Inventory = Inventory_Report_Pivot[
-        Inventory_Report_Pivot["Total Stock"] == 0
+        Inventory_Report_Pivot["afn-fulfillable-quantity"] == 0
     ].reset_index(drop=True)
     
     # Create Overstock Inventory
