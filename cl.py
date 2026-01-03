@@ -15,23 +15,66 @@ st.set_page_config(
 def normalize_sku(series):
     return series.astype(str)
 
-def create_stock_pivot(df):
-    """Creates pivot table with Brand, SKU, and sums of DOC, DRR, CP"""
-    # Ensure numeric columns
-    df_copy = df.copy()
-    for col in ["DOC", "DRR", "CP"]:
-        if col in df_copy.columns:
-            df_copy[col] = pd.to_numeric(df_copy[col], errors="coerce").fillna(0)
+def add_grand_total_row(df, numeric_cols=None):
+    """Add grand total row to dataframe for specified numeric columns"""
+    if df.empty:
+        return df
     
+    # Create grand total row
+    total_row = pd.Series(dtype='object')
+    
+    # Set identifier columns to "Grand Total"
+    for col in df.columns:
+        if col in ['SKU', 'sku', 'Brand', 'asin', '(Parent) ASIN']:
+            total_row[col] = 'Grand Total'
+        elif col in ['Vendor SKU Codes', 'Product Name', 'Brand Manager', 'seller-sku', 'Closing Listing']:
+            total_row[col] = ''
+        else:
+            # Sum numeric columns (including DOC now)
+            if numeric_cols is None or col in numeric_cols:
+                try:
+                    col_numeric = pd.to_numeric(df[col], errors='coerce')
+                    if col_numeric.notna().any():
+                        total_value = col_numeric.sum()
+                        # Round if it's a float
+                        if isinstance(total_value, float):
+                            total_row[col] = round(total_value, 2)
+                        else:
+                            total_row[col] = total_value
+                    else:
+                        total_row[col] = ''
+                except:
+                    total_row[col] = ''
+            else:
+                total_row[col] = ''
+    
+    # Append to dataframe
+    df_with_total = pd.concat([df, pd.DataFrame([total_row])], ignore_index=True)
+    return df_with_total
+
+def create_stock_pivot(df):
+    """
+    Creates pivot table with:
+    Rows   : Brand, SKU
+    Values : Sum of DOC, DRR, CP
+    Adds Brand subtotal + Grand Total
+    """
+    if df.empty:
+        return pd.DataFrame()
+
     pivot = pd.pivot_table(
-        df_copy,
-        index=["Brand", "SKU"],
+        df,
+        index=["Brand", "(Parent) ASIN", "SKU"],
         values=["DOC", "DRR", "CP"],
         aggfunc="sum",
         margins=True,
         margins_name="Grand Total"
     )
+
+    # Reset index for flat table
     pivot = pivot.reset_index()
+
+    # Rename columns for clarity
     pivot.rename(
         columns={
             "DOC": "Sum of DOC",
@@ -42,26 +85,34 @@ def create_stock_pivot(df):
     )
     return pivot
 
+
 def create_inventory_pivot(df):
-    """Creates pivot for inventory with DRR, DOC, CP"""
-    df_copy = df.copy()
-    for col in ["DRR", "DOC", "CP"]:
-        if col in df_copy.columns:
-            df_copy[col] = pd.to_numeric(df_copy[col], errors="coerce").fillna(0)
-    
+    """
+    Creates pivot table with:
+    Rows   : Brand, SKU
+    Values : Sum of DOC, DRR, CP
+    Adds Brand subtotal + Grand Total
+    """
+    if df.empty:
+        return pd.DataFrame()
+
     pivot = pd.pivot_table(
-        df_copy,
-        index=["Brand", "sku"],
-        values=["DRR", "DOC", "CP"],
+        df,
+        index=["Brand", "asin", "sku"],
+        values=["DOC", "DRR", "CP"],
         aggfunc="sum",
         margins=True,
         margins_name="Grand Total"
     )
+
+    # Reset index for flat table
     pivot = pivot.reset_index()
+
+    # Rename columns for clarity
     pivot.rename(
         columns={
-            "DRR": "Sum of DRR",
             "DOC": "Sum of DOC",
+            "DRR": "Sum of DRR",
             "CP": "Sum of CP"
         },
         inplace=True
@@ -202,19 +253,12 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
         Business_Report,
         index=["SKU","(Parent) ASIN"],
         values="Total Sales Order",
-        aggfunc="sum",
-        margins=True,
-        margins_name="Grand Total"
+        aggfunc="sum"
     )
     Business_Pivot = Business_Pivot.reset_index()
     
     # Sort by Total Sales Order
-    Business_Pivot_no_total = Business_Pivot[Business_Pivot["SKU"] != "Grand Total"]
-    Business_Pivot_total = Business_Pivot[Business_Pivot["SKU"] == "Grand Total"]
-    Business_Pivot = pd.concat([
-        Business_Pivot_no_total.sort_values("Total Sales Order", ascending=False),
-        Business_Pivot_total
-    ], ignore_index=True)
+    Business_Pivot = Business_Pivot.sort_values("Total Sales Order", ascending=False)
     
     # Read Purchase Master
     if purchase_master_file.name.endswith('.csv'):
@@ -240,16 +284,20 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     Business_Pivot["Product Name"] = Business_Pivot["SKU"].map(product_map)
     Business_Pivot["Brand Manager"] = Business_Pivot["SKU"].map(manager_map)
     
-    # Map CP
-    purchase_master2 = purchase_master.copy()
-    purchase_master2.rename(columns={purchase_master2.columns[2]: "Amazon Sku Name"}, inplace=True)
-    purchase_master2 = purchase_master2.drop_duplicates(subset="Amazon Sku Name", keep="first")
+    # Aggregate CP by Amazon Sku Name (sum different CP values)
+    purchase_master2 = (
+        purchase_master.copy()
+        .rename(columns={purchase_master.columns[2]: "Amazon Sku Name"})
+        .groupby("Amazon Sku Name", as_index=False)["CP"]
+        .sum()
+    )
+
+    # Set index for mapping
     purchase_master2 = purchase_master2.set_index("Amazon Sku Name")
-    
-    # Convert CP to numeric before mapping
-    purchase_master2["CP"] = pd.to_numeric(purchase_master2["CP"], errors="coerce")
+
+    # Map summed CP to pivot
     Business_Pivot["CP"] = Business_Pivot["SKU"].map(purchase_master2["CP"])
-    
+
     # Fill NaN in CP with 0
     Business_Pivot["CP"] = Business_Pivot["CP"].fillna(0)
     
@@ -281,11 +329,9 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     # Create Inventory Pivot
     inventory_pivot = pd.pivot_table(
         Inventory,
-        index="sku",
+        index="asin",
         values=["afn-fulfillable-quantity", "afn-reserved-quantity"],
-        aggfunc="sum",
-        margins=True,
-        margins_name="Grand Total"
+        aggfunc="sum"
     )
     inventory_pivot = inventory_pivot.reset_index()
     inventory_pivot.rename(
@@ -301,38 +347,17 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     )
     
     # Map inventory to Business Pivot
-    inventory_lookup = inventory_pivot.drop_duplicates(subset="sku", keep="first").set_index("sku")
-    Business_Pivot["afn-fulfillable-qty"] = Business_Pivot["SKU"].map(inventory_lookup["afn-fulfillable-qty"])
-    Business_Pivot["afn-reserved-qty"] = Business_Pivot["SKU"].map(inventory_lookup["afn-reserved-qty"])
-    Business_Pivot["Total Stock"] = Business_Pivot["SKU"].map(inventory_lookup["Total Stock"])
+    inventory_lookup = inventory_pivot.drop_duplicates(subset="asin", keep="first").set_index("asin")
+    Business_Pivot["afn-fulfillable-qty"] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup["afn-fulfillable-qty"])
+    Business_Pivot["afn-reserved-qty"] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup["afn-reserved-qty"])
+    Business_Pivot["Total Stock"] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup["Total Stock"])
     
     # Calculate DOC
     Business_Pivot["DOC"] = Business_Pivot["Total Stock"] / Business_Pivot["DRR"]
     Business_Pivot["DOC"] = Business_Pivot["DOC"].replace([np.inf, -np.inf], np.nan)
-    Business_Pivot.loc[Business_Pivot["SKU"] == "Grand Total", "DOC"] = ""
     Business_Pivot["DOC"] = Business_Pivot["DOC"].apply(
-        lambda x: round(x, 2) if x != "" and pd.notna(x) else ""
+        lambda x: round(x, 2) if pd.notna(x) else ""
     )
-    
-    # Create OOS Report
-    OOS_Report = Business_Pivot[Business_Pivot["SKU"] != "Grand Total"].copy()
-    OOS_Report = OOS_Report[OOS_Report["afn-fulfillable-qty"] == 0].reset_index(drop=True)
-    
-    # Ensure numeric columns for pivot
-    OOS_Report["CP"] = pd.to_numeric(OOS_Report["CP"], errors="coerce").fillna(0)
-    OOS_Report["DOC"] = pd.to_numeric(OOS_Report["DOC"], errors="coerce").fillna(0)
-    OOS_Report["DRR"] = pd.to_numeric(OOS_Report["DRR"], errors="coerce").fillna(0)
-    
-    # Create Overstock Report
-    Overstock_Report = Business_Pivot[Business_Pivot["SKU"] != "Grand Total"].copy()
-    Overstock_Report["DOC"] = pd.to_numeric(Overstock_Report["DOC"], errors="coerce").fillna(0)
-    Overstock_Report["CP"] = pd.to_numeric(Overstock_Report["CP"], errors="coerce").fillna(0)
-    Overstock_Report["DRR"] = pd.to_numeric(Overstock_Report["DRR"], errors="coerce").fillna(0)
-    Overstock_Report = Overstock_Report[Overstock_Report["DOC"] > doc_threshold].reset_index(drop=True)
-    
-    # Create pivots for OOS and Overstock
-    OOS_Pivot = create_stock_pivot(OOS_Report)
-    Overstock_Pivot = create_stock_pivot(Overstock_Report)
     
     # Process Listing Report
     if listing_file is not None:
@@ -350,6 +375,36 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
             .map({True: "Closing", False: ""})
         )
     
+    # Add Grand Total to Business Pivot
+    numeric_cols = ["Total Sales Order", "CP", "As Per Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock"]
+    Business_Pivot = add_grand_total_row(Business_Pivot, numeric_cols)
+    
+    # Create OOS Report (before adding grand total)
+    OOS_Report = Business_Pivot[Business_Pivot["SKU"] != "Grand Total"].copy()
+    OOS_Report = OOS_Report[OOS_Report["afn-fulfillable-qty"] == 0].reset_index(drop=True)
+    
+    # Ensure numeric columns for pivot
+    OOS_Report["CP"] = pd.to_numeric(OOS_Report["CP"], errors="coerce").fillna(0)
+    OOS_Report["DOC"] = pd.to_numeric(OOS_Report["DOC"], errors="coerce").fillna(0)
+    OOS_Report["DRR"] = pd.to_numeric(OOS_Report["DRR"], errors="coerce").fillna(0)
+    
+    # Create Overstock Report (before adding grand total)
+    Overstock_Report = Business_Pivot[Business_Pivot["SKU"] != "Grand Total"].copy()
+    Overstock_Report["DOC_compare"] = pd.to_numeric(Overstock_Report["DOC"], errors="coerce").fillna(0)
+    Overstock_Report["CP"] = pd.to_numeric(Overstock_Report["CP"], errors="coerce").fillna(0)
+    Overstock_Report["DRR"] = pd.to_numeric(Overstock_Report["DRR"], errors="coerce").fillna(0)
+    Overstock_Report = Overstock_Report[Overstock_Report["DOC_compare"] > doc_threshold].reset_index(drop=True)
+    Overstock_Report = Overstock_Report.drop("DOC_compare", axis=1)
+    
+    # Add grand totals to reports (include DOC)
+    numeric_cols = ["Total Sales Order", "CP", "As Per Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock", "DOC"]
+    OOS_Report = add_grand_total_row(OOS_Report, numeric_cols)
+    Overstock_Report = add_grand_total_row(Overstock_Report, numeric_cols)
+    
+    # Create pivots for OOS and Overstock (they already have margins=True for grand total)
+    OOS_Pivot = create_stock_pivot(OOS_Report[OOS_Report["SKU"] != "Grand Total"])
+    Overstock_Pivot = create_stock_pivot(Overstock_Report[Overstock_Report["SKU"] != "Grand Total"])
+    
     return Business_Pivot, OOS_Report, Overstock_Report, OOS_Pivot, Overstock_Pivot
 
 def process_inventory_report(inventory_file, purchase_master_file, business_pivot, no_of_days_inventory, doc_inventory_threshold):
@@ -362,14 +417,18 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
         Inventory = pd.read_excel(inventory_file)
     Inventory["sku"] = normalize_sku(Inventory["sku"])
     
-    # Create Inventory Report Pivot
-    Inventory_Report_Pivot = pd.pivot_table(
-        Inventory,
-        index=["sku","asin"],
-        values=["afn-fulfillable-quantity", "afn-reserved-quantity"],
-        aggfunc="sum"
-    )
-    Inventory_Report_Pivot = Inventory_Report_Pivot.reset_index()
+    # First aggregate by ASIN to get total quantities per ASIN
+    inventory_asin_totals = Inventory.groupby("asin", as_index=False).agg({
+        "afn-fulfillable-quantity": "sum",
+        "afn-reserved-quantity": "sum"
+    })
+    
+    # Get unique SKUs per ASIN (take first SKU for each ASIN)
+    inventory_sku_map = Inventory.groupby("asin", as_index=False)["sku"].first()
+    
+    # Merge to create Inventory Report Pivot
+    Inventory_Report_Pivot = inventory_asin_totals.merge(inventory_sku_map, on="asin", how="left")
+    
     Inventory_Report_Pivot["Total Stock"] = (
         Inventory_Report_Pivot["afn-fulfillable-quantity"] + 
         Inventory_Report_Pivot["afn-reserved-quantity"]
@@ -384,28 +443,35 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     
     # Map Purchase Master data
     pm_lookup = purchase_master[[
-        "Amazon Sku Name", "Vendor SKU Codes", "Brand", 
+        "ASIN","Amazon Sku Name", "Vendor SKU Codes", "Brand", 
         "Brand Manager", "Product Name", "CP"
     ]].copy()
-    pm_lookup = pm_lookup.drop_duplicates(subset="Amazon Sku Name", keep="first").set_index("Amazon Sku Name")
+    pm_lookup = pm_lookup.drop_duplicates(subset="ASIN", keep="first").set_index("ASIN")
     
-    Inventory_Report_Pivot["Vendor SKU Codes"] = Inventory_Report_Pivot["sku"].map(pm_lookup["Vendor SKU Codes"])
-    Inventory_Report_Pivot["Brand"] = Inventory_Report_Pivot["sku"].map(pm_lookup["Brand"])
-    Inventory_Report_Pivot["Brand Manager"] = Inventory_Report_Pivot["sku"].map(pm_lookup["Brand Manager"])
-    Inventory_Report_Pivot["Product Name"] = Inventory_Report_Pivot["sku"].map(pm_lookup["Product Name"])
-    Inventory_Report_Pivot["CP"] = Inventory_Report_Pivot["sku"].map(pm_lookup["CP"])
+    Inventory_Report_Pivot["Vendor SKU Codes"] = Inventory_Report_Pivot["asin"].map(pm_lookup["Vendor SKU Codes"])
+    Inventory_Report_Pivot["Brand"] = Inventory_Report_Pivot["asin"].map(pm_lookup["Brand"])
+    Inventory_Report_Pivot["Brand Manager"] = Inventory_Report_Pivot["asin"].map(pm_lookup["Brand Manager"])
+    Inventory_Report_Pivot["Product Name"] = Inventory_Report_Pivot["asin"].map(pm_lookup["Product Name"])
+    Inventory_Report_Pivot["CP"] = Inventory_Report_Pivot["asin"].map(pm_lookup["CP"])
     
     # Reorder columns
     Inventory_Report_Pivot = Inventory_Report_Pivot[[
-        "sku","asin", "Vendor SKU Codes", "Brand", "Brand Manager", 
+        "asin","sku", "Vendor SKU Codes", "Brand", "Brand Manager", 
         "Product Name", "afn-fulfillable-quantity", 
         "afn-reserved-quantity", "Total Stock", "CP"
     ]]
     
-    # Map Total Sales Order from Business Pivot
-    business_lookup = business_pivot[["SKU", "Total Sales Order"]].copy()
-    business_lookup = business_lookup.drop_duplicates(subset="SKU", keep="first").set_index("SKU")
-    Inventory_Report_Pivot["Total Sales Order"] = Inventory_Report_Pivot["sku"].map(
+    # Normalize both ASIN columns to string
+    business_pivot["(Parent) ASIN"] = business_pivot["(Parent) ASIN"].astype(str).str.strip()
+    Inventory_Report_Pivot["asin"] = Inventory_Report_Pivot["asin"].astype(str).str.strip()
+
+    # Create lookup with unique index by summing duplicates
+    business_lookup = business_pivot[business_pivot["SKU"] != "Grand Total"].groupby("(Parent) ASIN", as_index=False)["Total Sales Order"].sum()
+    business_lookup = business_lookup.set_index("(Parent) ASIN")
+    business_lookup.index = business_lookup.index.astype(str)
+
+    # Map using ASIN instead of SKU
+    Inventory_Report_Pivot["Total Sales Order"] = Inventory_Report_Pivot["asin"].map(
         business_lookup["Total Sales Order"]
     )
     
@@ -428,7 +494,7 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     # Calculate As Per Qty
     Inventory_Report_Pivot["As Per Qty"] = (
         Inventory_Report_Pivot["CP"] * Inventory_Report_Pivot["Total Sales Order"]
-    )
+    ).round(2)
     
     # Calculate DRR
     Inventory_Report_Pivot["DRR"] = (
@@ -440,30 +506,41 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
         Inventory_Report_Pivot["Total Stock"] / Inventory_Report_Pivot["DRR"]
     )
     Inventory_Report_Pivot["DOC"] = Inventory_Report_Pivot["DOC"].replace(
-        [np.inf, -np.inf], 0
-    ).round(2)
-    Inventory_Report_Pivot["DOC"] = pd.to_numeric(
-        Inventory_Report_Pivot["DOC"], errors="coerce"
-    ).fillna(0)
+        [np.inf, -np.inf], np.nan
+    )
+    # Keep DOC as numeric but handle NaN
+    Inventory_Report_Pivot["DOC"] = Inventory_Report_Pivot["DOC"].apply(
+        lambda x: round(x, 2) if pd.notna(x) else 0
+    )
     
-    # Filter out items with no sales
-    Inventory_Report_Pivot = Inventory_Report_Pivot[
-        Inventory_Report_Pivot["Total Sales Order"] != 0
-    ]
+    # DON'T filter out items with no sales - show all inventory
+    # Inventory_Report_Pivot = Inventory_Report_Pivot[
+    #     Inventory_Report_Pivot["Total Sales Order"] != 0
+    # ]
     
-    # Create OOS Inventory
+    # Create OOS Inventory (before adding grand total)
     OOS_Inventory = Inventory_Report_Pivot[
         Inventory_Report_Pivot["afn-fulfillable-quantity"] == 0
-    ].reset_index(drop=True)
+    ].copy().reset_index(drop=True)
     
-    # Create Overstock Inventory
+    # Create Overstock Inventory (before adding grand total)
+    # Ensure DOC is numeric for comparison
     Overstock_Inventory = Inventory_Report_Pivot[
         Inventory_Report_Pivot["DOC"] >= doc_inventory_threshold
-    ].reset_index(drop=True)
+    ].copy().reset_index(drop=True)
     
-    # Create pivots
-    OOS_Inventory_Pivot = create_inventory_pivot(OOS_Inventory)
-    Overstock_Inventory_Pivot = create_inventory_pivot(Overstock_Inventory)
+    # Add Grand Total to all reports (include DOC in numeric columns)
+    numeric_cols = ["afn-fulfillable-quantity", "afn-reserved-quantity", "Total Stock", "CP", "Total Sales Order", "As Per Qty", "DRR", "DOC"]
+    Inventory_Report_Pivot = add_grand_total_row(Inventory_Report_Pivot, numeric_cols)
+    OOS_Inventory = add_grand_total_row(OOS_Inventory, numeric_cols)
+    Overstock_Inventory = add_grand_total_row(Overstock_Inventory, numeric_cols)
+    
+    # Add grand total to Overstock Inventory
+    Overstock_Inventory = add_grand_total_row(Overstock_Inventory, numeric_cols)
+    
+    # Create pivots (they already have margins=True for grand total)
+    OOS_Inventory_Pivot = create_inventory_pivot(OOS_Inventory[OOS_Inventory["sku"] != "Grand Total"])
+    Overstock_Inventory_Pivot = create_inventory_pivot(Overstock_Inventory[Overstock_Inventory["sku"] != "Grand Total"])
     
     return Inventory_Report_Pivot, OOS_Inventory, Overstock_Inventory, OOS_Inventory_Pivot, Overstock_Inventory_Pivot
 
