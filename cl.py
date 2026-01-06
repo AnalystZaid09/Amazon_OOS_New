@@ -548,7 +548,7 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     return Inventory_Report_Pivot, OOS_Inventory, Overstock_Inventory, OOS_Inventory_Pivot, Overstock_Inventory_Pivot
 
 # Main App
-st.title("📦 Inventory Management System")
+st.title("📦Amazon OOS Inventory Management System")
 
 # Sidebar for file uploads
 st.sidebar.header("📁 Upload Files")
