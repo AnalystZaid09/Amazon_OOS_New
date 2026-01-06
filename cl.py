@@ -274,32 +274,39 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     ]
     purchase_master1 = purchase_master1.drop_duplicates(subset="Amazon Sku Name", keep="first")
     
-    vendor_sku_map = purchase_master1.set_index("Amazon Sku Name")["Vendor SKU Codes"]
-    brand_map = purchase_master1.set_index("Amazon Sku Name")["Brand"]
-    product_map = purchase_master1.set_index("Amazon Sku Name")["Product Name"]
-    manager_map = purchase_master1.set_index("Amazon Sku Name")["Brand Manager"]
+    Business_Pivot["(Parent) ASIN"] = Business_Pivot["(Parent) ASIN"].astype(str).str.strip()
+    purchase_master["ASIN"] = purchase_master["ASIN"].astype(str).str.strip()
+
+    # Step-by-step mapping from Purchase Master using ASIN
+    # Create lookup dictionaries based on ASIN
+    pm_asin_lookup = purchase_master.drop_duplicates(subset="ASIN", keep="first")
     
-    Business_Pivot["Vendor SKU Codes"] = Business_Pivot["SKU"].map(vendor_sku_map)
-    Business_Pivot["Brand"] = Business_Pivot["SKU"].map(brand_map)
-    Business_Pivot["Product Name"] = Business_Pivot["SKU"].map(product_map)
-    Business_Pivot["Brand Manager"] = Business_Pivot["SKU"].map(manager_map)
+    vendor_sku_map = pm_asin_lookup.set_index("ASIN")["Vendor SKU Codes"]
+    brand_map = pm_asin_lookup.set_index("ASIN")["Brand"]
+    product_map = pm_asin_lookup.set_index("ASIN")["Product Name"]
+    manager_map = pm_asin_lookup.set_index("ASIN")["Brand Manager"]
     
-    # Aggregate CP by Amazon Sku Name (sum different CP values)
-    purchase_master2 = (
+    Business_Pivot["Vendor SKU Codes"] = Business_Pivot["(Parent) ASIN"].map(vendor_sku_map)
+    Business_Pivot["Brand"] = Business_Pivot["(Parent) ASIN"].map(brand_map)
+    Business_Pivot["Product Name"] = Business_Pivot["(Parent) ASIN"].map(product_map)
+    Business_Pivot["Brand Manager"] = Business_Pivot["(Parent) ASIN"].map(manager_map)
+    
+    # Aggregate CP by ASIN (Ensure numeric first)
+    purchase_master["CP"] = pd.to_numeric(purchase_master["CP"], errors="coerce").fillna(0)
+    purchase_master_cp = (
         purchase_master.copy()
-        .rename(columns={purchase_master.columns[2]: "Amazon Sku Name"})
-        .groupby("Amazon Sku Name", as_index=False)["CP"]
+        .groupby("ASIN", as_index=False)["CP"]
         .sum()
     )
 
     # Set index for mapping
-    purchase_master2 = purchase_master2.set_index("Amazon Sku Name")
+    purchase_master_cp = purchase_master_cp.set_index("ASIN")
 
     # Map summed CP to pivot
-    Business_Pivot["CP"] = Business_Pivot["SKU"].map(purchase_master2["CP"])
+    Business_Pivot["CP"] = Business_Pivot["(Parent) ASIN"].map(purchase_master_cp["CP"])
 
-    # Fill NaN in CP with 0
-    Business_Pivot["CP"] = Business_Pivot["CP"].fillna(0)
+    # Fill NaN in CP with 0, ensure numeric, and round to 2 decimals
+    Business_Pivot["CP"] = pd.to_numeric(Business_Pivot["CP"], errors="coerce").fillna(0).round(2)
     
     # Reorder columns
     Business_Pivot = Business_Pivot[[
@@ -307,17 +314,13 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
         "Brand Manager", "Total Sales Order", "CP"
     ]]
     
-    # Ensure CP is numeric
-    Business_Pivot["CP"] = pd.to_numeric(Business_Pivot["CP"], errors="coerce").fillna(0)
     Business_Pivot.fillna("", inplace=True)
     
     # Calculate As Per Qty
-    Business_Pivot["CP_numeric"] = pd.to_numeric(Business_Pivot["CP"], errors="coerce").fillna(0)
-    Business_Pivot["As Per Qty"] = Business_Pivot["Total Sales Order"] * Business_Pivot["CP_numeric"]
-    Business_Pivot.drop("CP_numeric", axis=1, inplace=True)
+    Business_Pivot["As Per Qty"] = Business_Pivot["Total Sales Order"] * Business_Pivot["CP"]
     
-    # Calculate DRR
-    Business_Pivot["DRR"] = Business_Pivot["Total Sales Order"] / no_of_days
+    # Calculate DRR and round to 2 decimal places
+    Business_Pivot["DRR"] = (Business_Pivot["Total Sales Order"] / no_of_days).round(2)
     
     # Read Inventory
     if inventory_file.name.endswith('.csv'):
@@ -383,16 +386,16 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     OOS_Report = Business_Pivot[Business_Pivot["SKU"] != "Grand Total"].copy()
     OOS_Report = OOS_Report[OOS_Report["afn-fulfillable-qty"] == 0].reset_index(drop=True)
     
-    # Ensure numeric columns for pivot
-    OOS_Report["CP"] = pd.to_numeric(OOS_Report["CP"], errors="coerce").fillna(0)
-    OOS_Report["DOC"] = pd.to_numeric(OOS_Report["DOC"], errors="coerce").fillna(0)
-    OOS_Report["DRR"] = pd.to_numeric(OOS_Report["DRR"], errors="coerce").fillna(0)
+    # Ensure numeric columns for pivot and round to 2 decimals
+    OOS_Report["CP"] = pd.to_numeric(OOS_Report["CP"], errors="coerce").fillna(0).round(2)
+    OOS_Report["DOC"] = pd.to_numeric(OOS_Report["DOC"], errors="coerce").fillna(0).round(2)
+    OOS_Report["DRR"] = pd.to_numeric(OOS_Report["DRR"], errors="coerce").fillna(0).round(2)
     
     # Create Overstock Report (before adding grand total)
     Overstock_Report = Business_Pivot[Business_Pivot["SKU"] != "Grand Total"].copy()
-    Overstock_Report["DOC_compare"] = pd.to_numeric(Overstock_Report["DOC"], errors="coerce").fillna(0)
-    Overstock_Report["CP"] = pd.to_numeric(Overstock_Report["CP"], errors="coerce").fillna(0)
-    Overstock_Report["DRR"] = pd.to_numeric(Overstock_Report["DRR"], errors="coerce").fillna(0)
+    Overstock_Report["DOC_compare"] = pd.to_numeric(Overstock_Report["DOC"], errors="coerce").fillna(0).round(2)
+    Overstock_Report["CP"] = pd.to_numeric(Overstock_Report["CP"], errors="coerce").fillna(0).round(2)
+    Overstock_Report["DRR"] = pd.to_numeric(Overstock_Report["DRR"], errors="coerce").fillna(0).round(2)
     Overstock_Report = Overstock_Report[Overstock_Report["DOC_compare"] > doc_threshold].reset_index(drop=True)
     Overstock_Report = Overstock_Report.drop("DOC_compare", axis=1)
     
