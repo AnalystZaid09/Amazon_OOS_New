@@ -555,8 +555,8 @@ st.sidebar.header("📁 Upload Files")
 
 business_file = st.sidebar.file_uploader("Business Report", type=['csv', 'xlsx'])
 purchase_master_file = st.sidebar.file_uploader("Purchase Master", type=['csv', 'xlsx'])
-inventory_file = st.sidebar.file_uploader("Manage Inventory", type=['csv', 'xlsx'])
-listing_file = st.sidebar.file_uploader("Listing Status (Optional)", type=['csv', 'xlsx'])
+inventory_file = st.sidebar.file_uploader("Inventory File", type=['csv', 'xlsx'])
+listing_file = st.sidebar.file_uploader("Listing Status", type=['csv', 'xlsx'])
 
 st.sidebar.header("⚙️ Parameters")
 no_of_days = st.sidebar.number_input("Number of Days (Business)", min_value=1, value=30)
@@ -801,3 +801,4 @@ if business_file and purchase_master_file and inventory_file:
         st.exception(e)
 else:
     st.info("👆 Please upload all required files (Business Report, Purchase Master, and Manage Inventory) to begin.")
+
