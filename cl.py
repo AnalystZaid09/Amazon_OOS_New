@@ -6,7 +6,7 @@ from openpyxl.styles import PatternFill, Font
 
 # Page configuration
 st.set_page_config(
-    page_title="Inventory Management System",
+    page_title="Amazon OOS Inventory Management System",
     page_icon="📦",
     layout="wide"
 )
@@ -16,41 +16,34 @@ def normalize_sku(series):
     return series.astype(str)
 
 def add_grand_total_row(df, numeric_cols=None):
-    """Add grand total row to dataframe for specified numeric columns"""
+    """Add a single Grand Total row with label only in first column"""
     if df.empty:
         return df
-    
-    # Create grand total row
-    total_row = pd.Series(dtype='object')
-    
-    # Set identifier columns to "Grand Total"
+
+    total_row = {}
+
+    # First column name
+    first_col = df.columns[0]
+
     for col in df.columns:
-        if col in ['SKU', 'sku', 'Brand', 'asin', '(Parent) ASIN']:
-            total_row[col] = 'Grand Total'
-        elif col in ['Vendor SKU Codes', 'Product Name', 'Brand Manager', 'seller-sku', 'Closing Listing']:
-            total_row[col] = ''
-        else:
-            # Sum numeric columns (including DOC now)
-            if numeric_cols is None or col in numeric_cols:
-                try:
-                    col_numeric = pd.to_numeric(df[col], errors='coerce')
-                    if col_numeric.notna().any():
-                        total_value = col_numeric.sum()
-                        # Round if it's a float
-                        if isinstance(total_value, float):
-                            total_row[col] = round(total_value, 2)
-                        else:
-                            total_row[col] = total_value
-                    else:
-                        total_row[col] = ''
-                except:
-                    total_row[col] = ''
+        if col == first_col:
+            # Put Grand Total only in first column
+            total_row[col] = "Grand Total"
+
+        elif numeric_cols is None or col in numeric_cols:
+            # Sum numeric columns
+            col_numeric = pd.to_numeric(df[col], errors="coerce")
+            if col_numeric.notna().any():
+                total_val = col_numeric.sum()
+                total_row[col] = round(total_val, 2) if isinstance(total_val, float) else total_val
             else:
-                total_row[col] = ''
-    
-    # Append to dataframe
-    df_with_total = pd.concat([df, pd.DataFrame([total_row])], ignore_index=True)
-    return df_with_total
+                total_row[col] = ""
+
+        else:
+            # Keep all other columns blank
+            total_row[col] = ""
+
+    return pd.concat([df, pd.DataFrame([total_row])], ignore_index=True)
 
 def create_stock_pivot(df):
     """
@@ -66,9 +59,7 @@ def create_stock_pivot(df):
         df,
         index=["Brand", "(Parent) ASIN", "SKU"],
         values=["DOC", "DRR", "CP"],
-        aggfunc="sum",
-        margins=True,
-        margins_name="Grand Total"
+        aggfunc="sum"
     )
 
     # Reset index for flat table
@@ -100,9 +91,7 @@ def create_inventory_pivot(df):
         df,
         index=["Brand", "asin", "sku"],
         values=["DOC", "DRR", "CP"],
-        aggfunc="sum",
-        margins=True,
-        margins_name="Grand Total"
+        aggfunc="sum"
     )
 
     # Reset index for flat table
@@ -405,8 +394,28 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     Overstock_Report = add_grand_total_row(Overstock_Report, numeric_cols)
     
     # Create pivots for OOS and Overstock (they already have margins=True for grand total)
-    OOS_Pivot = create_stock_pivot(OOS_Report[OOS_Report["SKU"] != "Grand Total"])
-    Overstock_Pivot = create_stock_pivot(Overstock_Report[Overstock_Report["SKU"] != "Grand Total"])
+    # OOS_Pivot = create_stock_pivot(OOS_Report[OOS_Report["SKU"] != "Grand Total"])
+    # Overstock_Pivot = create_stock_pivot(Overstock_Report[Overstock_Report["SKU"] != "Grand Total"])
+    # --- Business OOS Pivot ---
+    oos_pivot_source = OOS_Report[OOS_Report["SKU"] != "Grand Total"].copy()
+
+    OOS_Pivot = create_stock_pivot(oos_pivot_source)
+
+    OOS_Pivot = add_grand_total_row(
+        OOS_Pivot,
+        numeric_cols=["Sum of CP", "Sum of DOC", "Sum of DRR"]
+    )
+
+    # --- Business Overstock Pivot ---
+    overstock_pivot_source = Overstock_Report[Overstock_Report["SKU"] != "Grand Total"].copy()
+
+    Overstock_Pivot = create_stock_pivot(overstock_pivot_source)
+
+    Overstock_Pivot = add_grand_total_row(
+        Overstock_Pivot,
+        numeric_cols=["Sum of CP", "Sum of DOC", "Sum of DRR"]
+    )
+
     
     return Business_Pivot, OOS_Report, Overstock_Report, OOS_Pivot, Overstock_Pivot
 
@@ -538,13 +547,39 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     OOS_Inventory = add_grand_total_row(OOS_Inventory, numeric_cols)
     Overstock_Inventory = add_grand_total_row(Overstock_Inventory, numeric_cols)
     
-    # Add grand total to Overstock Inventory
-    Overstock_Inventory = add_grand_total_row(Overstock_Inventory, numeric_cols)
+    # # Add grand total to Overstock Inventory
+    # Overstock_Inventory = add_grand_total_row(Overstock_Inventory, numeric_cols)
     
     # Create pivots (they already have margins=True for grand total)
-    OOS_Inventory_Pivot = create_inventory_pivot(OOS_Inventory[OOS_Inventory["sku"] != "Grand Total"])
-    Overstock_Inventory_Pivot = create_inventory_pivot(Overstock_Inventory[Overstock_Inventory["sku"] != "Grand Total"])
+    # OOS_Inventory_Pivot = create_inventory_pivot(OOS_Inventory[OOS_Inventory["asin"] != "Grand Total"])
+    # Overstock_Inventory_Pivot = create_inventory_pivot(Overstock_Inventory[Overstock_Inventory["asin"] != "Grand Total"])
     
+    # -------- Inventory OOS Pivot --------
+    oos_inventory_pivot_source = OOS_Inventory[
+        (OOS_Inventory["asin"] != "Grand Total") &
+        (OOS_Inventory["sku"] != "Grand Total")
+    ].copy()
+
+    OOS_Inventory_Pivot = create_inventory_pivot(oos_inventory_pivot_source)
+
+    OOS_Inventory_Pivot = add_grand_total_row(
+        OOS_Inventory_Pivot,
+        numeric_cols=["Sum of CP", "Sum of DOC", "Sum of DRR"]
+    )
+
+    # -------- Inventory Overstock Pivot --------
+    overstock_inventory_pivot_source = Overstock_Inventory[
+        (Overstock_Inventory["asin"] != "Grand Total") &
+        (Overstock_Inventory["sku"] != "Grand Total")
+    ].copy()
+
+    Overstock_Inventory_Pivot = create_inventory_pivot(overstock_inventory_pivot_source)
+
+    Overstock_Inventory_Pivot = add_grand_total_row(
+        Overstock_Inventory_Pivot,
+        numeric_cols=["Sum of CP", "Sum of DOC", "Sum of DRR"]
+    )
+
     return Inventory_Report_Pivot, OOS_Inventory, Overstock_Inventory, OOS_Inventory_Pivot, Overstock_Inventory_Pivot
 
 # Main App
@@ -555,8 +590,8 @@ st.sidebar.header("📁 Upload Files")
 
 business_file = st.sidebar.file_uploader("Business Report", type=['csv', 'xlsx'])
 purchase_master_file = st.sidebar.file_uploader("Purchase Master", type=['csv', 'xlsx'])
-inventory_file = st.sidebar.file_uploader("Inventory File", type=['csv', 'xlsx'])
-listing_file = st.sidebar.file_uploader("Listing Status", type=['csv', 'xlsx'])
+inventory_file = st.sidebar.file_uploader("Manage Inventory", type=['csv', 'xlsx'])
+listing_file = st.sidebar.file_uploader("Listing Status (Optional)", type=['csv', 'xlsx'])
 
 st.sidebar.header("⚙️ Parameters")
 no_of_days = st.sidebar.number_input("Number of Days (Business)", min_value=1, value=30)
@@ -801,4 +836,3 @@ if business_file and purchase_master_file and inventory_file:
         st.exception(e)
 else:
     st.info("👆 Please upload all required files (Business Report, Purchase Master, and Manage Inventory) to begin.")
-
