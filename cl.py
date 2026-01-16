@@ -505,7 +505,7 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     
     # Calculate As Per Qty
     Inventory_Report_Pivot["As Per Qty"] = (
-        Inventory_Report_Pivot["CP"] * Inventory_Report_Pivot["Total Sales Order"]
+        Inventory_Report_Pivot["CP"] * Inventory_Report_Pivot["Total Stock"]
     ).round(2)
     
     # Calculate DRR
@@ -836,3 +836,4 @@ if business_file and purchase_master_file and inventory_file:
         st.exception(e)
 else:
     st.info("👆 Please upload all required files (Business Report, Purchase Master, and Manage Inventory) to begin.")
+
