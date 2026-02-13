@@ -4,18 +4,6 @@ import numpy as np
 from io import BytesIO
 from openpyxl.styles import PatternFill, Font
 
-from common.ui_utils import (
-    apply_professional_style, 
-    get_download_filename, 
-    render_header,
-    download_module_report,
-    to_excel,
-    auto_save_generated_reports
-)
-
-MODULE_NAME = "amazon"
-TOOL_NAME = "amazon_oos"  # Tool identifier for MongoDB tracking
-
 # Page configuration
 st.set_page_config(
     page_title="Amazon OOS Inventory",
@@ -23,7 +11,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-apply_professional_style()
 
 
 # Helper Functions
@@ -224,6 +211,16 @@ def to_excel(df, apply_doc_formatting=False):
                     cell.font = Font(color=font_color, bold=True)
     
     return output.getvalue()
+
+def download_excel_button(df, filename, button_label, apply_doc_formatting=False, key=None):
+    excel_bytes = to_excel(df, apply_doc_formatting=apply_doc_formatting)
+    st.download_button(
+        label=button_label,
+        data=excel_bytes,
+        file_name=filename,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key=key
+    )
 
 def process_business_report(business_file, purchase_master_file, inventory_file, listing_file, no_of_days, doc_threshold):
     """Process all business report data"""
@@ -674,7 +671,7 @@ def run_process(business_file, purchase_master_file, inventory_file, listing_fil
     }
 
 # Main App
-render_header("Amazon OOS Inventory Management System", None)
+st.title("📦 Amazon OOS Inventory Management System")
 
 # Sidebar for file uploads
 st.sidebar.header("📁 Upload Files")
@@ -748,20 +745,7 @@ if business_file and purchase_master_file and inventory_file:
             inventory_io, purchase_io, Business_Pivot, 
             no_of_days_inventory, doc_inventory_threshold
         )
-        
-        # AUTO-SAVE reports to database for persistence
-        from common.ui_utils import auto_save_generated_reports
-        reports_to_save = {
-            "Business Pivot": Business_Pivot,
-            "OOS Report": OOS_Report,
-            "Inventory Report": Inventory_Report_Pivot,
-            "OOS Inventory": OOS_Inventory,
-            "Overstock Inventory": Overstock_Inventory,
-            "OOS Pivot": OOS_Pivot,
-            "Overstock Pivot": Overstock_Pivot
-        }
-        auto_save_generated_reports(reports_to_save, MODULE_NAME, tool_name=TOOL_NAME)
-        
+            
         # Create tabs
         tab1, tab2, tab3 = st.tabs(["📊 Business Report", "📦 Inventory Report", "📋 Business Listing Report"])
         
@@ -782,15 +766,14 @@ if business_file and purchase_master_file and inventory_file:
                 else:
                     st.dataframe(Business_Pivot, use_container_width=True, height=600)
                 
-                download_module_report(
+                download_excel_button(
                     df=Business_Pivot,
-                    module_name=MODULE_NAME,
-                    report_name="Business Pivot",
+                    filename="Business_Pivot.xlsx",
                     button_label="📥 Download Business Pivot (with DOC colors)",
                     apply_doc_formatting=True,
-                    key="dl_business_pivot_main",
-                    tool_name=TOOL_NAME
+                    key="dl_business_pivot_main"
                 )
+
             
             with sub_tab2:
                 st.subheader("Out of Stock (OOS) Report")
@@ -958,3 +941,4 @@ if business_file and purchase_master_file and inventory_file:
         st.exception(e)
 else:
     st.info("👆 Please upload all required files (Business Report, Purchase Master, and Manage Inventory) to begin.")
+
