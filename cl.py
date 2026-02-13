@@ -796,7 +796,7 @@ if business_file and purchase_master_file and inventory_file:
                 st.dataframe(OOS_Pivot, use_container_width=True)
                 download_excel_button(
                     df=OOS_Pivot,
-                    filename="Business OOS Pivot",
+                    filename="Business_OOS_Pivot.xlsx",
                     button_label="📥 Download OOS Pivot",
                     key="oos_pivot_download"
                 )
@@ -813,7 +813,7 @@ if business_file and purchase_master_file and inventory_file:
                 
                 download_excel_button(
                     df=Overstock_Report,
-                    filename="Business Overstock Report",
+                    filename="Business_Overstock_Report.xlsx",
                     button_label="📥 Download Overstock Report (with DOC colors)",
                     apply_doc_formatting=True,
                     key="dl_overstock_report_main"
@@ -838,7 +838,7 @@ if business_file and purchase_master_file and inventory_file:
                 
                 download_excel_button(
                     df=Inventory_Report_Pivot,
-                    filename="Inventory Report",
+                    filename="Inventory_Report.xlsx",
                     button_label="📥 Download Inventory Report (with DOC colors)",
                     apply_doc_formatting=True,
                     key="dl_inventory_report_main"
@@ -856,7 +856,7 @@ if business_file and purchase_master_file and inventory_file:
                 
                 download_excel_button(
                     df=OOS_Inventory,
-                    filename="OOS Inventory (with DOC colors)",
+                    filename="OOS_Inventory_(with DOC colors).xlsx",
                     button_label="📥 Download OOS Inventory (with DOC colors)",
                     apply_doc_formatting=True,
                     key="oos_inventory_download"
@@ -866,7 +866,7 @@ if business_file and purchase_master_file and inventory_file:
                 st.dataframe(OOS_Inventory_Pivot, use_container_width=True)
                 download_excel_button(
                     df=OOS_Inventory_Pivot,
-                    filename="OOS Inventory Pivot",
+                    filename="OOS_Inventory_Pivot.xlsx",
                     button_label="📥 Download OOS Inventory Pivot",
                     key="oos_inventory_pivot_download"
                 )
@@ -883,7 +883,7 @@ if business_file and purchase_master_file and inventory_file:
                 
                 download_excel_button(
                     df=Overstock_Inventory,
-                    filename="Overstock Inventory (with DOC colors)",
+                    filename="Overstock_Inventory_(with DOC colors).xlsx",
                     button_label="📥 Download Overstock Inventory (with DOC colors)",
                     apply_doc_formatting=True,
                     key="overstock_inventory_download"
@@ -893,7 +893,7 @@ if business_file and purchase_master_file and inventory_file:
                 st.dataframe(Overstock_Inventory_Pivot, use_container_width=True)
                 download_excel_button(
                     df=Overstock_Inventory_Pivot,
-                    filename="Overstock Inventory Pivot",
+                    filename="Overstock_Inventory_Pivot.xlsx",
                     button_label="📥 Download Overstock Inventory Pivot",
                     key="overstock_inventory_pivot_download"
                 )
@@ -911,7 +911,7 @@ if business_file and purchase_master_file and inventory_file:
             
             download_excel_button(
                 df=Business_Pivot,
-                filename="Business Listing Report (with DOC colors)",
+                filename="Business_Listing_Report_(with DOC colors).xlsx",
                 button_label="📥 Download Business Listing Report (with DOC colors)",
                 apply_doc_formatting=True,
                 key="business_listing_download"
@@ -922,6 +922,7 @@ if business_file and purchase_master_file and inventory_file:
         st.exception(e)
 else:
     st.info("👆 Please upload all required files (Business Report, Purchase Master, and Manage Inventory) to begin.")
+
 
 
 
