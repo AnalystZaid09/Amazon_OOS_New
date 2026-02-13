@@ -4,12 +4,27 @@ import numpy as np
 from io import BytesIO
 from openpyxl.styles import PatternFill, Font
 
+from common.ui_utils import (
+    apply_professional_style, 
+    get_download_filename, 
+    render_header,
+    download_module_report,
+    to_excel,
+    auto_save_generated_reports
+)
+
+MODULE_NAME = "amazon"
+TOOL_NAME = "amazon_oos"  # Tool identifier for MongoDB tracking
+
 # Page configuration
 st.set_page_config(
-    page_title="Amazon OOS Inventory Management System",
+    page_title="Amazon OOS Inventory",
     page_icon="📦",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
+apply_professional_style()
+
 
 # Helper Functions
 def normalize_sku(series):
@@ -220,17 +235,21 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
         Business_Report = pd.read_excel(business_file)
     Business_Report["SKU"] = normalize_sku(Business_Report["SKU"])
     
-    # Clean Total Order Items
-    Business_Report["Total Order Items"] = (
-        Business_Report["Total Order Items"]
-        .astype(str)
-        .str.replace(",", "", regex=False)
-        .str.strip()
-    )
-    Business_Report["Total Order Items"] = pd.to_numeric(
-        Business_Report["Total Order Items"], errors="coerce"
-    )
-    
+    # Clean Total Order Items and B2B items
+    for col in ["Total Order Items", "Total Order Items - B2B"]:
+        if col in Business_Report.columns:
+            Business_Report[col] = (
+                Business_Report[col]
+                .astype(str)
+                .str.replace(",", "", regex=False)
+                .str.strip()
+            )
+            Business_Report[col] = pd.to_numeric(
+                Business_Report[col], errors="coerce"
+            ).fillna(0)
+        else:
+            Business_Report[col] = 0
+            
     # Calculate Total Sales Order
     Business_Report["Total Sales Order"] = (
         Business_Report["Total Order Items"] + 
@@ -318,6 +337,19 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
         Inventory = pd.read_excel(inventory_file)
     Inventory["sku"] = normalize_sku(Inventory["sku"])
     
+    # Clean inventory quantities
+    for col in ["afn-fulfillable-quantity", "afn-reserved-quantity"]:
+        if col in Inventory.columns:
+            Inventory[col] = (
+                Inventory[col]
+                .astype(str)
+                .str.replace(",", "", regex=False)
+                .str.strip()
+            )
+            Inventory[col] = pd.to_numeric(Inventory[col], errors="coerce").fillna(0)
+        else:
+            Inventory[col] = 0
+
     # Create Inventory Pivot
     inventory_pivot = pd.pivot_table(
         Inventory,
@@ -429,6 +461,19 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
         Inventory = pd.read_excel(inventory_file)
     Inventory["sku"] = normalize_sku(Inventory["sku"])
     
+    # Clean inventory quantities
+    for col in ["afn-fulfillable-quantity", "afn-reserved-quantity"]:
+        if col in Inventory.columns:
+            Inventory[col] = (
+                Inventory[col]
+                .astype(str)
+                .str.replace(",", "", regex=False)
+                .str.strip()
+            )
+            Inventory[col] = pd.to_numeric(Inventory[col], errors="coerce").fillna(0)
+        else:
+            Inventory[col] = 0
+
     # First aggregate by ASIN to get total quantities per ASIN
     inventory_asin_totals = Inventory.groupby("asin", as_index=False).agg({
         "afn-fulfillable-quantity": "sum",
@@ -505,7 +550,7 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     
     # Calculate As Per Qty
     Inventory_Report_Pivot["As Per Qty"] = (
-        Inventory_Report_Pivot["CP"] * Inventory_Report_Pivot["Total Stock"]
+        Inventory_Report_Pivot["CP"] * Inventory_Report_Pivot["Total Sales Order"]
     ).round(2)
     
     # Calculate DRR
@@ -582,8 +627,54 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
 
     return Inventory_Report_Pivot, OOS_Inventory, Overstock_Inventory, OOS_Inventory_Pivot, Overstock_Inventory_Pivot
 
+def run_process(business_file, purchase_master_file, inventory_file, listing_file=None, 
+                no_of_days=30, doc_threshold=30, no_of_days_inventory=30, 
+                doc_inventory_threshold=30, progress_cb=None):
+    """Core logic for OOS tool, separated from UI."""
+    # Helper for progress
+    def update_progress(text):
+        if progress_cb: progress_cb(text)
+        else: print(f"DEBUG: {text}")
+
+    # Reset file pointers if they are file-like objects
+    for f in [business_file, purchase_master_file, inventory_file, listing_file]:
+        if f and hasattr(f, 'seek'):
+            f.seek(0)
+
+    # Process Business Report
+    update_progress("📊 Processing Business Report...")
+    Business_Pivot, OOS_Report, Overstock_Report, OOS_Pivot, Overstock_Pivot = process_business_report(
+        business_file, purchase_master_file, inventory_file, listing_file, 
+        no_of_days, doc_threshold
+    )
+    
+    # Process Inventory Report
+    update_progress("📦 Processing Inventory Report...")
+    # Reset pointers for second pass
+    for f in [purchase_master_file, inventory_file]:
+        if f and hasattr(f, 'seek'):
+            f.seek(0)
+            
+    Inventory_Report_Pivot, OOS_Inventory, Overstock_Inventory, OOS_Inventory_Pivot, Overstock_Inventory_Pivot = process_inventory_report(
+        inventory_file, purchase_master_file, Business_Pivot, 
+        no_of_days_inventory, doc_inventory_threshold
+    )
+    
+    return {
+        "Business Pivot": Business_Pivot,
+        "OOS Report": OOS_Report,
+        "Overstock Report": Overstock_Report,
+        "OOS Pivot": OOS_Pivot,
+        "Overstock Pivot": Overstock_Pivot,
+        "Inventory Report": Inventory_Report_Pivot,
+        "OOS Inventory": OOS_Inventory,
+        "Overstock Inventory": Overstock_Inventory,
+        "OOS Inventory Pivot": OOS_Inventory_Pivot,
+        "Overstock Inventory Pivot": Overstock_Inventory_Pivot
+    }
+
 # Main App
-st.title("📦Amazon OOS Inventory Management System")
+render_header("Amazon OOS Inventory Management System", None)
 
 # Sidebar for file uploads
 st.sidebar.header("📁 Upload Files")
@@ -658,6 +749,19 @@ if business_file and purchase_master_file and inventory_file:
             no_of_days_inventory, doc_inventory_threshold
         )
         
+        # AUTO-SAVE reports to database for persistence
+        from common.ui_utils import auto_save_generated_reports
+        reports_to_save = {
+            "Business Pivot": Business_Pivot,
+            "OOS Report": OOS_Report,
+            "Inventory Report": Inventory_Report_Pivot,
+            "OOS Inventory": OOS_Inventory,
+            "Overstock Inventory": Overstock_Inventory,
+            "OOS Pivot": OOS_Pivot,
+            "Overstock Pivot": Overstock_Pivot
+        }
+        auto_save_generated_reports(reports_to_save, MODULE_NAME, tool_name=TOOL_NAME)
+        
         # Create tabs
         tab1, tab2, tab3 = st.tabs(["📊 Business Report", "📦 Inventory Report", "📋 Business Listing Report"])
         
@@ -678,11 +782,14 @@ if business_file and purchase_master_file and inventory_file:
                 else:
                     st.dataframe(Business_Pivot, use_container_width=True, height=600)
                 
-                st.download_button(
-                    "📥 Download Business Pivot (with DOC colors)",
-                    data=to_excel(Business_Pivot, apply_doc_formatting=True),
-                    file_name="business_pivot.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                download_module_report(
+                    df=Business_Pivot,
+                    module_name=MODULE_NAME,
+                    report_name="Business Pivot",
+                    button_label="📥 Download Business Pivot (with DOC colors)",
+                    apply_doc_formatting=True,
+                    key="dl_business_pivot_main",
+                    tool_name=TOOL_NAME
                 )
             
             with sub_tab2:
@@ -695,20 +802,25 @@ if business_file and purchase_master_file and inventory_file:
                 else:
                     st.dataframe(OOS_Report, use_container_width=True, height=600)
                 
-                st.download_button(
-                    "📥 Download OOS Report (with DOC colors)",
-                    data=to_excel(OOS_Report, apply_doc_formatting=True),
-                    file_name="oos_report.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                download_module_report(
+                    df=OOS_Report,
+                    module_name=MODULE_NAME,
+                    report_name="OOS Report",
+                    button_label="📥 Download OOS Report (with DOC colors)",
+                    apply_doc_formatting=True,
+                    key="dl_oos_report_main",
+                    tool_name=TOOL_NAME
                 )
                 
                 st.subheader("OOS Pivot Table")
                 st.dataframe(OOS_Pivot, use_container_width=True)
-                st.download_button(
-                    "📥 Download OOS Pivot",
-                    data=to_excel(OOS_Pivot),
-                    file_name="oos_pivot.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                download_module_report(
+                    df=OOS_Pivot,
+                    module_name=MODULE_NAME,
+                    report_name="OOS Pivot",
+                    button_label="📥 Download OOS Pivot",
+                    key="oos_pivot_download",
+                    tool_name=TOOL_NAME
                 )
             
             with sub_tab3:
@@ -721,20 +833,14 @@ if business_file and purchase_master_file and inventory_file:
                 else:
                     st.dataframe(Overstock_Report, use_container_width=True, height=600)
                 
-                st.download_button(
-                    "📥 Download Overstock Report (with DOC colors)",
-                    data=to_excel(Overstock_Report, apply_doc_formatting=True),
-                    file_name="overstock_report.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-                
-                st.subheader("Overstock Pivot Table")
-                st.dataframe(Overstock_Pivot, use_container_width=True)
-                st.download_button(
-                    "📥 Download Overstock Pivot",
-                    data=to_excel(Overstock_Pivot),
-                    file_name="overstock_pivot.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                download_module_report(
+                    df=Overstock_Report,
+                    module_name=MODULE_NAME,
+                    report_name="Overstock Report",
+                    button_label="📥 Download Overstock Report (with DOC colors)",
+                    apply_doc_formatting=True,
+                    key="dl_overstock_report_main",
+                    tool_name=TOOL_NAME
                 )
         
         # Tab 2: Inventory Report
@@ -754,11 +860,14 @@ if business_file and purchase_master_file and inventory_file:
                 else:
                     st.dataframe(Inventory_Report_Pivot, use_container_width=True, height=600)
                 
-                st.download_button(
-                    "📥 Download Inventory Report (with DOC colors)",
-                    data=to_excel(Inventory_Report_Pivot, apply_doc_formatting=True),
-                    file_name="inventory_report.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                download_module_report(
+                    df=Inventory_Report_Pivot,
+                    module_name=MODULE_NAME,
+                    report_name="Inventory Report",
+                    button_label="📥 Download Inventory Report (with DOC colors)",
+                    apply_doc_formatting=True,
+                    key="dl_inventory_report_main",
+                    tool_name=TOOL_NAME
                 )
             
             with sub_tab2:
@@ -771,20 +880,25 @@ if business_file and purchase_master_file and inventory_file:
                 else:
                     st.dataframe(OOS_Inventory, use_container_width=True, height=600)
                 
-                st.download_button(
-                    "📥 Download OOS Inventory (with DOC colors)",
-                    data=to_excel(OOS_Inventory, apply_doc_formatting=True),
-                    file_name="oos_inventory.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                download_module_report(
+                    df=OOS_Inventory,
+                    module_name=MODULE_NAME,
+                    report_name="OOS Inventory (with DOC colors)",
+                    button_label="📥 Download OOS Inventory (with DOC colors)",
+                    apply_doc_formatting=True,
+                    key="oos_inventory_download",
+                    tool_name=TOOL_NAME
                 )
                 
                 st.subheader("OOS Inventory Pivot Table")
                 st.dataframe(OOS_Inventory_Pivot, use_container_width=True)
-                st.download_button(
-                    "📥 Download OOS Inventory Pivot",
-                    data=to_excel(OOS_Inventory_Pivot),
-                    file_name="oos_inventory_pivot.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                download_module_report(
+                    df=OOS_Inventory_Pivot,
+                    module_name=MODULE_NAME,
+                    report_name="OOS Inventory Pivot",
+                    button_label="📥 Download OOS Inventory Pivot",
+                    key="oos_inventory_pivot_download",
+                    tool_name=TOOL_NAME
                 )
             
             with sub_tab3:
@@ -797,20 +911,25 @@ if business_file and purchase_master_file and inventory_file:
                 else:
                     st.dataframe(Overstock_Inventory, use_container_width=True, height=600)
                 
-                st.download_button(
-                    "📥 Download Overstock Inventory (with DOC colors)",
-                    data=to_excel(Overstock_Inventory, apply_doc_formatting=True),
-                    file_name="overstock_inventory.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                download_module_report(
+                    df=Overstock_Inventory,
+                    module_name=MODULE_NAME,
+                    report_name="Overstock Inventory (with DOC colors)",
+                    button_label="📥 Download Overstock Inventory (with DOC colors)",
+                    apply_doc_formatting=True,
+                    key="overstock_inventory_download",
+                    tool_name=TOOL_NAME
                 )
                 
                 st.subheader("Overstock Inventory Pivot Table")
                 st.dataframe(Overstock_Inventory_Pivot, use_container_width=True)
-                st.download_button(
-                    "📥 Download Overstock Inventory Pivot",
-                    data=to_excel(Overstock_Inventory_Pivot),
-                    file_name="overstock_inventory_pivot.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                download_module_report(
+                    df=Overstock_Inventory_Pivot,
+                    module_name=MODULE_NAME,
+                    report_name="Overstock Inventory Pivot",
+                    button_label="📥 Download Overstock Inventory Pivot",
+                    key="overstock_inventory_pivot_download",
+                    tool_name=TOOL_NAME
                 )
         
         # Tab 3: Business Listing Report with DOC coloring
@@ -824,11 +943,14 @@ if business_file and purchase_master_file and inventory_file:
             else:
                 st.dataframe(Business_Pivot, use_container_width=True, height=600)
             
-            st.download_button(
-                "📥 Download Business Listing Report (with DOC colors)",
-                data=to_excel(Business_Pivot, apply_doc_formatting=True),
-                file_name="business_listing_report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            download_module_report(
+                df=Business_Pivot,
+                module_name=MODULE_NAME,
+                report_name="Business Listing Report (with DOC colors)",
+                button_label="📥 Download Business Listing Report (with DOC colors)",
+                apply_doc_formatting=True,
+                key="business_listing_download",
+                tool_name=TOOL_NAME
             )
             
     except Exception as e:
@@ -836,4 +958,3 @@ if business_file and purchase_master_file and inventory_file:
         st.exception(e)
 else:
     st.info("👆 Please upload all required files (Business Report, Purchase Master, and Manage Inventory) to begin.")
-
