@@ -785,25 +785,22 @@ if business_file and purchase_master_file and inventory_file:
                 else:
                     st.dataframe(OOS_Report, use_container_width=True, height=600)
                 
-                download_module_report(
-                    df=OOS_Report,
-                    module_name=MODULE_NAME,
-                    report_name="OOS Report",
-                    button_label="📥 Download OOS Report (with DOC colors)",
+                download_excel_button(
+                    df=Business_Pivot,
+                    filename="Business_Pivot.xlsx",
+                    button_label="📥 Download Business Pivot (with DOC colors)",
                     apply_doc_formatting=True,
-                    key="dl_oos_report_main",
-                    tool_name=TOOL_NAME
+                    key="dl_business_pivot_main"
                 )
+
                 
                 st.subheader("OOS Pivot Table")
                 st.dataframe(OOS_Pivot, use_container_width=True)
-                download_module_report(
+                download_excel_button(
                     df=OOS_Pivot,
-                    module_name=MODULE_NAME,
-                    report_name="OOS Pivot",
+                    report_name="Business OOS Pivot",
                     button_label="📥 Download OOS Pivot",
-                    key="oos_pivot_download",
-                    tool_name=TOOL_NAME
+                    key="oos_pivot_download"
                 )
             
             with sub_tab3:
@@ -816,14 +813,12 @@ if business_file and purchase_master_file and inventory_file:
                 else:
                     st.dataframe(Overstock_Report, use_container_width=True, height=600)
                 
-                download_module_report(
+                download_excel_button(
                     df=Overstock_Report,
-                    module_name=MODULE_NAME,
-                    report_name="Overstock Report",
+                    report_name="Business Overstock Report",
                     button_label="📥 Download Overstock Report (with DOC colors)",
                     apply_doc_formatting=True,
-                    key="dl_overstock_report_main",
-                    tool_name=TOOL_NAME
+                    key="dl_overstock_report_main"
                 )
         
         # Tab 2: Inventory Report
@@ -843,14 +838,12 @@ if business_file and purchase_master_file and inventory_file:
                 else:
                     st.dataframe(Inventory_Report_Pivot, use_container_width=True, height=600)
                 
-                download_module_report(
+                download_excel_button(
                     df=Inventory_Report_Pivot,
-                    module_name=MODULE_NAME,
                     report_name="Inventory Report",
                     button_label="📥 Download Inventory Report (with DOC colors)",
                     apply_doc_formatting=True,
-                    key="dl_inventory_report_main",
-                    tool_name=TOOL_NAME
+                    key="dl_inventory_report_main"
                 )
             
             with sub_tab2:
@@ -863,25 +856,21 @@ if business_file and purchase_master_file and inventory_file:
                 else:
                     st.dataframe(OOS_Inventory, use_container_width=True, height=600)
                 
-                download_module_report(
+                download_excel_button(
                     df=OOS_Inventory,
-                    module_name=MODULE_NAME,
                     report_name="OOS Inventory (with DOC colors)",
                     button_label="📥 Download OOS Inventory (with DOC colors)",
                     apply_doc_formatting=True,
-                    key="oos_inventory_download",
-                    tool_name=TOOL_NAME
+                    key="oos_inventory_download"
                 )
                 
                 st.subheader("OOS Inventory Pivot Table")
                 st.dataframe(OOS_Inventory_Pivot, use_container_width=True)
-                download_module_report(
+                download_excel_button(
                     df=OOS_Inventory_Pivot,
-                    module_name=MODULE_NAME,
                     report_name="OOS Inventory Pivot",
                     button_label="📥 Download OOS Inventory Pivot",
-                    key="oos_inventory_pivot_download",
-                    tool_name=TOOL_NAME
+                    key="oos_inventory_pivot_download"
                 )
             
             with sub_tab3:
@@ -894,25 +883,21 @@ if business_file and purchase_master_file and inventory_file:
                 else:
                     st.dataframe(Overstock_Inventory, use_container_width=True, height=600)
                 
-                download_module_report(
+                download_excel_button(
                     df=Overstock_Inventory,
-                    module_name=MODULE_NAME,
                     report_name="Overstock Inventory (with DOC colors)",
                     button_label="📥 Download Overstock Inventory (with DOC colors)",
                     apply_doc_formatting=True,
-                    key="overstock_inventory_download",
-                    tool_name=TOOL_NAME
+                    key="overstock_inventory_download"
                 )
                 
                 st.subheader("Overstock Inventory Pivot Table")
                 st.dataframe(Overstock_Inventory_Pivot, use_container_width=True)
-                download_module_report(
+                download_excel_button(
                     df=Overstock_Inventory_Pivot,
-                    module_name=MODULE_NAME,
                     report_name="Overstock Inventory Pivot",
                     button_label="📥 Download Overstock Inventory Pivot",
-                    key="overstock_inventory_pivot_download",
-                    tool_name=TOOL_NAME
+                    key="overstock_inventory_pivot_download"
                 )
         
         # Tab 3: Business Listing Report with DOC coloring
@@ -926,14 +911,12 @@ if business_file and purchase_master_file and inventory_file:
             else:
                 st.dataframe(Business_Pivot, use_container_width=True, height=600)
             
-            download_module_report(
+            download_excel_button(
                 df=Business_Pivot,
-                module_name=MODULE_NAME,
                 report_name="Business Listing Report (with DOC colors)",
                 button_label="📥 Download Business Listing Report (with DOC colors)",
                 apply_doc_formatting=True,
-                key="business_listing_download",
-                tool_name=TOOL_NAME
+                key="business_listing_download"
             )
             
     except Exception as e:
@@ -941,4 +924,5 @@ if business_file and purchase_master_file and inventory_file:
         st.exception(e)
 else:
     st.info("👆 Please upload all required files (Business Report, Purchase Master, and Manage Inventory) to begin.")
+
 
