@@ -774,7 +774,6 @@ if business_file and purchase_master_file and inventory_file:
                     key="dl_business_pivot_main"
                 )
 
-            
             with sub_tab2:
                 st.subheader("Out of Stock (OOS) Report")
                 
@@ -786,13 +785,12 @@ if business_file and purchase_master_file and inventory_file:
                     st.dataframe(OOS_Report, use_container_width=True, height=600)
                 
                 download_excel_button(
-                    df=Business_Pivot,
-                    filename="Business_Pivot.xlsx",
-                    button_label="📥 Download Business Pivot (with DOC colors)",
+                    df=OOS_Report,
+                    filename="Business_OOS_Report.xlsx",
+                    button_label="📥 Download OOS Report (with DOC colors)",
                     apply_doc_formatting=True,
-                    key="dl_business_pivot_main"
+                    key="dl_oos_report_main"
                 )
-
                 
                 st.subheader("OOS Pivot Table")
                 st.dataframe(OOS_Pivot, use_container_width=True)
@@ -924,5 +922,6 @@ if business_file and purchase_master_file and inventory_file:
         st.exception(e)
 else:
     st.info("👆 Please upload all required files (Business Report, Purchase Master, and Manage Inventory) to begin.")
+
 
 
