@@ -377,7 +377,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     Business_Pivot["DOC"] = Business_Pivot["Total Stock"] / Business_Pivot["DRR"]
     Business_Pivot["DOC"] = Business_Pivot["DOC"].replace([np.inf, -np.inf], np.nan)
     Business_Pivot["DOC"] = Business_Pivot["DOC"].apply(
-        lambda x: round(x, 2) if pd.notna(x) else ""
+        lambda x: round(x, 2) if pd.notna(x) else 0
     )
     
     # Process Listing Report
@@ -418,7 +418,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     Overstock_Report = Overstock_Report.drop("DOC_compare", axis=1)
     
     # Add grand totals to reports (include DOC)
-    numeric_cols = ["Total Sales Order", "CP", "As Per Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock", "DOC"]
+    numeric_cols = ["Total Sales Order", "CP", "As Per Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock"]
     OOS_Report = add_grand_total_row(OOS_Report, numeric_cols)
     Overstock_Report = add_grand_total_row(Overstock_Report, numeric_cols)
     
@@ -922,6 +922,7 @@ if business_file and purchase_master_file and inventory_file:
         st.exception(e)
 else:
     st.info("👆 Please upload all required files (Business Report, Purchase Master, and Manage Inventory) to begin.")
+
 
 
 
