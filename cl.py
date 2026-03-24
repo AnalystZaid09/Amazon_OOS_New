@@ -38,8 +38,7 @@ def add_grand_total_row(df, numeric_cols=None):
                 total_val = col_numeric.sum()
                 total_row[col] = round(total_val, 2) if isinstance(total_val, float) else total_val
             else:
-                total_row[col] = ""
-
+                total_row[col] = 0
         else:
             # Keep all other columns blank
             total_row[col] = ""
@@ -397,7 +396,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
         )
     
     # Add Grand Total to Business Pivot
-    numeric_cols = ["Total Sales Order", "CP", "CP As Per Total Sale Qty", "CP As Per Total Stock Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock"]
+    numeric_cols = ["Total Sales Order", "CP", "CP As Per Total Sale Qty", "CP As Per Total Stock Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock", "DOC"]
     Business_Pivot = add_grand_total_row(Business_Pivot, numeric_cols)
     
     # Create OOS Report (before adding grand total)
@@ -418,7 +417,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     Overstock_Report = Overstock_Report.drop("DOC_compare", axis=1)
     
     # Add grand totals to reports (include DOC)
-    numeric_cols = ["Total Sales Order", "CP", "CP As Per Total Sale Qty", "CP As Per Total Stock Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock"]
+    numeric_cols = ["Total Sales Order", "CP", "CP As Per Total Sale Qty", "CP As Per Total Stock Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock", "DOC"]
     OOS_Report = add_grand_total_row(OOS_Report, numeric_cols)
     Overstock_Report = add_grand_total_row(Overstock_Report, numeric_cols)
     
