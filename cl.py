@@ -251,15 +251,50 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
         Business_Report["Total Order Items - B2B"]
     )
     
-    # Create Business Pivot
+    # Map Listing Status by SKU BEFORE aggregation
+    if listing_file is not None:
+        if listing_file.name.endswith('.csv'):
+            Listing_Status = pd.read_csv(listing_file)
+        else:
+            Listing_Status = pd.read_excel(listing_file)
+        
+        # Mapping Seller SKU by SKU (usually 4th column in Manage Inventory)
+        seller_sku_series = Listing_Status.iloc[:, 3].astype(str).str.strip()
+        seller_sku_lookup = dict(zip(seller_sku_series, seller_sku_series))
+        
+        Business_Report["seller-sku"] = Business_Report["SKU"].map(seller_sku_lookup)
+        Business_Report["Is_Closing"] = Business_Report["seller-sku"].notna()
+    else:
+        Business_Report["seller-sku"] = None
+        Business_Report["Is_Closing"] = False
+
+    # Create Business Pivot (Aggregated by ASIN)
     Business_Pivot = pd.pivot_table(
         Business_Report,
-        index=["SKU","(Parent) ASIN"],
+        index=["(Parent) ASIN"],
         values="Total Sales Order",
         aggfunc="sum"
     )
     Business_Pivot = Business_Pivot.reset_index()
     
+    # Get associated SKUs and Listing Status for each (Parent) ASIN
+    # We take the first non-null seller-sku and check if ANY sku is closing
+    def aggregate_skus(series):
+        return ", ".join(series.unique())
+
+    Aggregation_Data = Business_Report.groupby("(Parent) ASIN").agg({
+        "SKU": aggregate_skus,
+        "seller-sku": lambda x: ", ".join(x.dropna().unique()) if x.dropna().any() else "",
+        "Is_Closing": "any"
+    }).reset_index()
+    
+    # Merge back to the Business Pivot
+    Business_Pivot = Business_Pivot.merge(Aggregation_Data, on="(Parent) ASIN", how="left")
+    
+    # Add Closing Listing column based on any SKU being closing
+    Business_Pivot["Closing Listing"] = Business_Pivot["Is_Closing"].map({True: "Closing", False: ""})
+    Business_Pivot = Business_Pivot.drop("Is_Closing", axis=1)
+
     # Sort by Total Sales Order
     Business_Pivot = Business_Pivot.sort_values("Total Sales Order", ascending=False)
     
@@ -270,13 +305,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
         purchase_master = pd.read_excel(purchase_master_file)
     purchase_master["Amazon Sku Name"] = normalize_sku(purchase_master["Amazon Sku Name"])
     
-    # Map Purchase Master data
-    purchase_master1 = purchase_master.iloc[:, [2, 3, 4, 6, 7]].copy()
-    purchase_master1.columns = [
-        "Amazon Sku Name", "Vendor SKU Codes", "Brand Manager", "Brand", "Product Name"
-    ]
-    purchase_master1 = purchase_master1.drop_duplicates(subset="Amazon Sku Name", keep="first")
-    
+    # Prepare data for mapping
     Business_Pivot["(Parent) ASIN"] = Business_Pivot["(Parent) ASIN"].astype(str).str.strip()
     purchase_master["ASIN"] = purchase_master["ASIN"].astype(str).str.strip()
 
@@ -308,16 +337,9 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     # Map summed CP to pivot
     Business_Pivot["CP"] = Business_Pivot["(Parent) ASIN"].map(purchase_master_cp["CP"])
 
-    # Fill NaN in CP with 0, ensure numeric, and round to 2 decimals
-    Business_Pivot["CP"] = pd.to_numeric(Business_Pivot["CP"], errors="coerce").fillna(0).round(2)
-    
-    # Reorder columns
-    Business_Pivot = Business_Pivot[[
-        "SKU","(Parent) ASIN", "Vendor SKU Codes", "Brand", "Product Name", 
-        "Brand Manager", "Total Sales Order", "CP"
-    ]]
-    
-    Business_Pivot.fillna("", inplace=True)
+    # Fill missing mapping values with 0/empty as appropriate
+    cols_to_fill_zero = ["Total Sales Order", "CP"]
+    Business_Pivot[cols_to_fill_zero] = Business_Pivot[cols_to_fill_zero].fillna(0)
     
     # Calculate DRR and round to 2 decimal places
     Business_Pivot["DRR"] = (Business_Pivot["Total Sales Order"] / no_of_days).round(2)
@@ -373,27 +395,29 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     Business_Pivot["CP As Per Total Stock Qty"] = (Business_Pivot["Total Stock"] * Business_Pivot["CP"]).round(2)
 
     # Calculate DOC
-    Business_Pivot["DOC"] = Business_Pivot["Total Stock"] / Business_Pivot["DRR"]
-    Business_Pivot["DOC"] = Business_Pivot["DOC"].replace([np.inf, -np.inf], np.nan)
-    Business_Pivot["DOC"] = Business_Pivot["DOC"].apply(
-        lambda x: round(x, 2) if pd.notna(x) else 0
-    )
+    Business_Pivot["DOC"] = (Business_Pivot["Total Stock"] / Business_Pivot["DRR"]).replace([np.inf, -np.inf], 0).fillna(0)
     
-    # Process Listing Report
-    if listing_file is not None:
-        if listing_file.name.endswith('.csv'):
-            Listing_Status = pd.read_csv(listing_file)
-        else:
-            Listing_Status = pd.read_excel(listing_file)
-        
-        seller_sku_series = Listing_Status.iloc[:, 3].astype(str)
-        seller_sku_lookup = dict(zip(seller_sku_series, seller_sku_series))
-        Business_Pivot["seller-sku"] = Business_Pivot["SKU"].map(seller_sku_lookup)
-        Business_Pivot["Closing Listing"] = (
-            Business_Pivot["seller-sku"]
-            .eq(Business_Pivot["SKU"])
-            .map({True: "Closing", False: ""})
-        )
+    # Final rounding and type enforcement for all numeric columns
+    numeric_columns = [
+        "Total Sales Order", "CP", "DRR", "afn-fulfillable-qty", 
+        "afn-reserved-qty", "Total Stock", "CP As Per Total Sale Qty", 
+        "CP As Per Total Stock Qty", "DOC"
+    ]
+    for col in numeric_columns:
+        if col in Business_Pivot.columns:
+            Business_Pivot[col] = pd.to_numeric(Business_Pivot[col], errors="coerce").fillna(0).round(2)
+    
+    # Final clean up of Listing Status columns
+    Business_Pivot["seller-sku"] = Business_Pivot["seller-sku"].fillna("")
+    Business_Pivot["Closing Listing"] = Business_Pivot["Closing Listing"].fillna("")
+    
+    # Reorder columns
+    Business_Pivot = Business_Pivot[[
+        "SKU","(Parent) ASIN", "Vendor SKU Codes", "Brand", "Product Name", 
+        "Brand Manager", "Total Sales Order", "CP", "DRR", "afn-fulfillable-qty", 
+        "afn-reserved-qty", "Total Stock", "CP As Per Total Sale Qty", 
+        "CP As Per Total Stock Qty", "DOC", "seller-sku", "Closing Listing"
+    ]]
     
     # Add Grand Total to Business Pivot
     numeric_cols = ["Total Sales Order", "CP", "CP As Per Total Sale Qty", "CP As Per Total Stock Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock", "DOC"]
@@ -558,16 +582,17 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     ).round(2)
     
     # Calculate DOC
-    Inventory_Report_Pivot["DOC"] = (
-        Inventory_Report_Pivot["Total Stock"] / Inventory_Report_Pivot["DRR"]
-    )
-    Inventory_Report_Pivot["DOC"] = Inventory_Report_Pivot["DOC"].replace(
-        [np.inf, -np.inf], np.nan
-    )
-    # Keep DOC as numeric but handle NaN
-    Inventory_Report_Pivot["DOC"] = Inventory_Report_Pivot["DOC"].apply(
-        lambda x: round(x, 2) if pd.notna(x) else 0
-    )
+    Inventory_Report_Pivot["DOC"] = (Inventory_Report_Pivot["Total Stock"] / Inventory_Report_Pivot["DRR"]).replace([np.inf, -np.inf], 0).fillna(0)
+    
+    # Final rounding and type enforcement for all numeric columns
+    numeric_columns = [
+        "afn-fulfillable-quantity", "afn-reserved-quantity", "Total Stock", 
+        "CP", "Total Sales Order", "CP As Per Total Sale Qty", 
+        "CP As Per Total Stock Qty", "DRR", "DOC"
+    ]
+    for col in numeric_columns:
+        if col in Inventory_Report_Pivot.columns:
+            Inventory_Report_Pivot[col] = pd.to_numeric(Inventory_Report_Pivot[col], errors="coerce").fillna(0).round(2)
     
     # DON'T filter out items with no sales - show all inventory
     # Inventory_Report_Pivot = Inventory_Report_Pivot[
