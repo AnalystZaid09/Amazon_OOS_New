@@ -12,7 +12,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-
 # Helper Functions
 def normalize_sku(series):
     return series.astype(str)
@@ -321,9 +320,6 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     
     Business_Pivot.fillna("", inplace=True)
     
-    # Calculate As Per Qty
-    Business_Pivot["As Per Qty"] = Business_Pivot["Total Sales Order"] * Business_Pivot["CP"]
-    
     # Calculate DRR and round to 2 decimal places
     Business_Pivot["DRR"] = (Business_Pivot["Total Sales Order"] / no_of_days).round(2)
     
@@ -373,6 +369,10 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     Business_Pivot["afn-reserved-qty"] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup["afn-reserved-qty"])
     Business_Pivot["Total Stock"] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup["Total Stock"])
     
+    # Calculate CP calculations
+    Business_Pivot["CP As Per Total Sale Qty"] = (Business_Pivot["Total Sales Order"] * Business_Pivot["CP"]).round(2)
+    Business_Pivot["CP As Per Total Stock Qty"] = (Business_Pivot["Total Stock"] * Business_Pivot["CP"]).round(2)
+
     # Calculate DOC
     Business_Pivot["DOC"] = Business_Pivot["Total Stock"] / Business_Pivot["DRR"]
     Business_Pivot["DOC"] = Business_Pivot["DOC"].replace([np.inf, -np.inf], np.nan)
@@ -397,7 +397,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
         )
     
     # Add Grand Total to Business Pivot
-    numeric_cols = ["Total Sales Order", "CP", "As Per Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock"]
+    numeric_cols = ["Total Sales Order", "CP", "CP As Per Total Sale Qty", "CP As Per Total Stock Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock"]
     Business_Pivot = add_grand_total_row(Business_Pivot, numeric_cols)
     
     # Create OOS Report (before adding grand total)
@@ -418,7 +418,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     Overstock_Report = Overstock_Report.drop("DOC_compare", axis=1)
     
     # Add grand totals to reports (include DOC)
-    numeric_cols = ["Total Sales Order", "CP", "As Per Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock"]
+    numeric_cols = ["Total Sales Order", "CP", "CP As Per Total Sale Qty", "CP As Per Total Stock Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock"]
     OOS_Report = add_grand_total_row(OOS_Report, numeric_cols)
     Overstock_Report = add_grand_total_row(Overstock_Report, numeric_cols)
     
@@ -545,9 +545,12 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
         Inventory_Report_Pivot["CP"], errors="coerce"
     ).round(2)
     
-    # Calculate As Per Qty
-    Inventory_Report_Pivot["As Per Qty"] = (
+    # Calculate CP calculations
+    Inventory_Report_Pivot["CP As Per Total Sale Qty"] = (
         Inventory_Report_Pivot["CP"] * Inventory_Report_Pivot["Total Sales Order"]
+    ).round(2)
+    Inventory_Report_Pivot["CP As Per Total Stock Qty"] = (
+        Inventory_Report_Pivot["CP"] * Inventory_Report_Pivot["Total Stock"]
     ).round(2)
     
     # Calculate DRR
@@ -584,7 +587,7 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     ].copy().reset_index(drop=True)
     
     # Add Grand Total to all reports (include DOC in numeric columns)
-    numeric_cols = ["afn-fulfillable-quantity", "afn-reserved-quantity", "Total Stock", "CP", "Total Sales Order", "As Per Qty", "DRR", "DOC"]
+    numeric_cols = ["afn-fulfillable-quantity", "afn-reserved-quantity", "Total Stock", "CP", "Total Sales Order", "CP As Per Total Sale Qty", "CP As Per Total Stock Qty", "DRR", "DOC"]
     Inventory_Report_Pivot = add_grand_total_row(Inventory_Report_Pivot, numeric_cols)
     OOS_Inventory = add_grand_total_row(OOS_Inventory, numeric_cols)
     Overstock_Inventory = add_grand_total_row(Overstock_Inventory, numeric_cols)
@@ -922,9 +925,3 @@ if business_file and purchase_master_file and inventory_file:
         st.exception(e)
 else:
     st.info("👆 Please upload all required files (Business Report, Purchase Master, and Manage Inventory) to begin.")
-
-
-
-
-
-
