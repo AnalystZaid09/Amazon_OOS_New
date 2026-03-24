@@ -181,7 +181,7 @@ def style_doc_column(df):
         return get_doc_color(val)
     
     # Create a copy to avoid modifying original
-    styled = df.style.applymap(apply_color, subset=['DOC'])
+    styled = df.style.map(apply_color, subset=['DOC'])
     return styled
 
 def to_excel(df, apply_doc_formatting=False):
@@ -290,7 +290,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     product_map = pm_asin_lookup.set_index("ASIN")["Product Name"]
     manager_map = pm_asin_lookup.set_index("ASIN")["Brand Manager"]
     
-    Business_Pivot["Vendor SKU Codes"] = Business_Pivot["(Parent) ASIN"].map(vendor_sku_map)
+    Business_Pivot["Vendor SKU Codes"] = Business_Pivot["(Parent) ASIN"].map(vendor_sku_map).astype(str).replace(['nan', 'None', ''], pd.NA).fillna("")
     Business_Pivot["Brand"] = Business_Pivot["(Parent) ASIN"].map(brand_map)
     Business_Pivot["Product Name"] = Business_Pivot["(Parent) ASIN"].map(product_map)
     Business_Pivot["Brand Manager"] = Business_Pivot["(Parent) ASIN"].map(manager_map)
@@ -502,7 +502,7 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     ]].copy()
     pm_lookup = pm_lookup.drop_duplicates(subset="ASIN", keep="first").set_index("ASIN")
     
-    Inventory_Report_Pivot["Vendor SKU Codes"] = Inventory_Report_Pivot["asin"].map(pm_lookup["Vendor SKU Codes"])
+    Inventory_Report_Pivot["Vendor SKU Codes"] = Inventory_Report_Pivot["asin"].map(pm_lookup["Vendor SKU Codes"]).astype(str).replace(['nan', 'None', ''], pd.NA).fillna("")
     Inventory_Report_Pivot["Brand"] = Inventory_Report_Pivot["asin"].map(pm_lookup["Brand"])
     Inventory_Report_Pivot["Brand Manager"] = Inventory_Report_Pivot["asin"].map(pm_lookup["Brand Manager"])
     Inventory_Report_Pivot["Product Name"] = Inventory_Report_Pivot["asin"].map(pm_lookup["Product Name"])
