@@ -292,7 +292,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     Business_Pivot = Business_Pivot.merge(Aggregation_Data, on="(Parent) ASIN", how="left")
     
     # Add Closing Listing column based on any SKU being closing
-    Business_Pivot["Closing Listing"] = Business_Pivot["Is_Closing"].map({True: "Closing", False: ""})
+    Business_Pivot["Listing Status"] = Business_Pivot["Is_Closing"].map({True: "Closed", False: ""})
     Business_Pivot = Business_Pivot.drop("Is_Closing", axis=1)
 
     # Sort by Total Sales Order
@@ -409,14 +409,14 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     
     # Final clean up of Listing Status columns
     Business_Pivot["seller-sku"] = Business_Pivot["seller-sku"].fillna("")
-    Business_Pivot["Closing Listing"] = Business_Pivot["Closing Listing"].fillna("")
+    Business_Pivot["Listing Status"] = Business_Pivot["Listing Status"].fillna("")
     
     # Reorder columns
     Business_Pivot = Business_Pivot[[
         "SKU","(Parent) ASIN", "Vendor SKU Codes", "Brand", "Product Name", 
         "Brand Manager", "Total Sales Order", "CP", "DRR", "afn-fulfillable-qty", 
         "afn-reserved-qty", "Total Stock", "CP As Per Total Sale Qty", 
-        "CP As Per Total Stock Qty", "DOC", "seller-sku", "Closing Listing"
+        "CP As Per Total Stock Qty", "DOC", "seller-sku", "Listing Status"
     ]]
     
     # Add Grand Total to Business Pivot
