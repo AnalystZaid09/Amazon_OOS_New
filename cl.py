@@ -220,7 +220,7 @@ def download_excel_button(df, filename, button_label, apply_doc_formatting=False
         key=key
     )
 
-def process_business_report(business_file, purchase_master_file, inventory_file, listing_file, no_of_days, doc_threshold):
+def process_business_report(business_file, purchase_master_file, inventory_file, reserve_file, listing_file, no_of_days, doc_threshold):
     """Process all business report data"""
     
     # Read Business Report
@@ -291,7 +291,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     # Merge back to the Business Pivot
     Business_Pivot = Business_Pivot.merge(Aggregation_Data, on="(Parent) ASIN", how="left")
     
-    # Add Closing Listing column based on any SKU being closing
+    # Add Listing Status column based on any SKU being closing
     Business_Pivot["Listing Status"] = Business_Pivot["Is_Closing"].map({True: "Closed", False: ""})
     Business_Pivot = Business_Pivot.drop("Is_Closing", axis=1)
 
@@ -343,7 +343,31 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     
     # Calculate DRR and round to 2 decimal places
     Business_Pivot["DRR"] = (Business_Pivot["Total Sales Order"] / no_of_days).round(2)
+
+    # Read Reserve In Data
+    if reserve_file.name.endswith('.csv'):
+        Reserve_In = pd.read_csv(reserve_file)
+    else:
+        Reserve_In = pd.read_excel(reserve_file)
     
+    # Clean Reserve In quantities
+    reserve_cols = ["reserved_customerorders", "reserved_fc-transfers", "reserved_fc-processing"]
+    for col in reserve_cols:
+        if col in Reserve_In.columns:
+            Reserve_In[col] = pd.to_numeric(Reserve_In[col], errors="coerce").fillna(0)
+        else:
+            Reserve_In[col] = 0
+            
+    # Create Reserve Pivot (Aggregated by ASIN)
+    reserve_pivot = pd.pivot_table(
+        Reserve_In,
+        index="asin",
+        values=reserve_cols,
+        aggfunc="sum"
+    ).reset_index()
+    reserve_pivot["asin"] = reserve_pivot["asin"].astype(str).str.strip()
+    reserve_lookup = reserve_pivot.set_index("asin")
+
     # Read Inventory
     if inventory_file.name.endswith('.csv'):
         Inventory = pd.read_csv(inventory_file)
@@ -379,15 +403,29 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
         },
         inplace=True
     )
+    
+    # Map reserve columns to inventory pivot to calculate Total Stock
+    inventory_pivot["asin"] = inventory_pivot["asin"].astype(str).str.strip()
+    for col in reserve_cols:
+        inventory_pivot[col] = inventory_pivot["asin"].map(reserve_lookup[col]).fillna(0)
+        
+    # Updated Total Stock formula: afn-fulfillable-qty - reserved_customerorders + reserved_fc-transfers + reserved_fc-processing
     inventory_pivot["Total Stock"] = (
-        inventory_pivot["afn-fulfillable-qty"] + 
-        inventory_pivot["afn-reserved-qty"]
+        inventory_pivot["afn-fulfillable-qty"] - 
+        inventory_pivot["reserved_customerorders"] + 
+        inventory_pivot["reserved_fc-transfers"] + 
+        inventory_pivot["reserved_fc-processing"]
     )
     
     # Map inventory to Business Pivot
     inventory_lookup = inventory_pivot.drop_duplicates(subset="asin", keep="first").set_index("asin")
     Business_Pivot["afn-fulfillable-qty"] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup["afn-fulfillable-qty"])
     Business_Pivot["afn-reserved-qty"] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup["afn-reserved-qty"])
+    
+    # Map additional reserve columns to Business Pivot
+    for col in reserve_cols:
+        Business_Pivot[col] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup[col]).fillna(0)
+        
     Business_Pivot["Total Stock"] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup["Total Stock"])
     
     # Calculate CP calculations
@@ -400,7 +438,8 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     # Final rounding and type enforcement for all numeric columns
     numeric_columns = [
         "Total Sales Order", "CP", "DRR", "afn-fulfillable-qty", 
-        "afn-reserved-qty", "Total Stock", "CP As Per Total Sale Qty", 
+        "afn-reserved-qty", "reserved_customerorders", "reserved_fc-transfers", 
+        "reserved_fc-processing", "Total Stock", "CP As Per Total Sale Qty", 
         "CP As Per Total Stock Qty", "DOC"
     ]
     for col in numeric_columns:
@@ -415,12 +454,18 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     Business_Pivot = Business_Pivot[[
         "SKU","(Parent) ASIN", "Vendor SKU Codes", "Brand", "Product Name", 
         "Brand Manager", "Total Sales Order", "CP", "DRR", "afn-fulfillable-qty", 
-        "afn-reserved-qty", "Total Stock", "CP As Per Total Sale Qty", 
+        "afn-reserved-qty", "reserved_customerorders", "reserved_fc-transfers", 
+        "reserved_fc-processing", "Total Stock", "CP As Per Total Sale Qty", 
         "CP As Per Total Stock Qty", "DOC", "seller-sku", "Listing Status"
     ]]
     
     # Add Grand Total to Business Pivot
-    numeric_cols = ["Total Sales Order", "CP", "CP As Per Total Sale Qty", "CP As Per Total Stock Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock", "DOC"]
+    numeric_cols = [
+        "Total Sales Order", "CP", "CP As Per Total Sale Qty", 
+        "CP As Per Total Stock Qty", "DRR", "afn-fulfillable-qty", 
+        "afn-reserved-qty", "reserved_customerorders", "reserved_fc-transfers", 
+        "reserved_fc-processing", "Total Stock", "DOC"
+    ]
     Business_Pivot = add_grand_total_row(Business_Pivot, numeric_cols)
     
     # Create OOS Report (before adding grand total)
@@ -441,7 +486,12 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     Overstock_Report = Overstock_Report.drop("DOC_compare", axis=1)
     
     # Add grand totals to reports (include DOC)
-    numeric_cols = ["Total Sales Order", "CP", "CP As Per Total Sale Qty", "CP As Per Total Stock Qty", "DRR", "afn-fulfillable-qty", "afn-reserved-qty", "Total Stock", "DOC"]
+    numeric_cols = [
+        "Total Sales Order", "CP", "CP As Per Total Sale Qty", 
+        "CP As Per Total Stock Qty", "DRR", "afn-fulfillable-qty", 
+        "afn-reserved-qty", "reserved_customerorders", "reserved_fc-transfers", 
+        "reserved_fc-processing", "Total Stock", "DOC"
+    ]
     OOS_Report = add_grand_total_row(OOS_Report, numeric_cols)
     Overstock_Report = add_grand_total_row(Overstock_Report, numeric_cols)
     
@@ -471,7 +521,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     
     return Business_Pivot, OOS_Report, Overstock_Report, OOS_Pivot, Overstock_Pivot
 
-def process_inventory_report(inventory_file, purchase_master_file, business_pivot, no_of_days_inventory, doc_inventory_threshold):
+def process_inventory_report(inventory_file, purchase_master_file, reserve_file, business_pivot, no_of_days_inventory, doc_inventory_threshold):
     """Process inventory report data"""
     
     # Read Inventory
@@ -481,7 +531,7 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
         Inventory = pd.read_excel(inventory_file)
     Inventory["sku"] = normalize_sku(Inventory["sku"])
     
-    # Clean inventory quantities
+    # Clean inventory quantities and Read Reserve Data
     for col in ["afn-fulfillable-quantity", "afn-reserved-quantity"]:
         if col in Inventory.columns:
             Inventory[col] = (
@@ -493,6 +543,28 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
             Inventory[col] = pd.to_numeric(Inventory[col], errors="coerce").fillna(0)
         else:
             Inventory[col] = 0
+
+    # Read Reserve In Data
+    if reserve_file.name.endswith('.csv'):
+        Reserve_In = pd.read_csv(reserve_file)
+    else:
+        Reserve_In = pd.read_excel(reserve_file)
+    
+    reserve_cols = ["reserved_customerorders", "reserved_fc-transfers", "reserved_fc-processing"]
+    for col in reserve_cols:
+        if col in Reserve_In.columns:
+            Reserve_In[col] = pd.to_numeric(Reserve_In[col], errors="coerce").fillna(0)
+        else:
+            Reserve_In[col] = 0
+            
+    reserve_pivot = pd.pivot_table(
+        Reserve_In,
+        index="asin",
+        values=reserve_cols,
+        aggfunc="sum"
+    ).reset_index()
+    reserve_pivot["asin"] = reserve_pivot["asin"].astype(str).str.strip()
+    reserve_lookup = reserve_pivot.set_index("asin")
 
     # First aggregate by ASIN to get total quantities per ASIN
     inventory_asin_totals = Inventory.groupby("asin", as_index=False).agg({
@@ -506,9 +578,16 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     # Merge to create Inventory Report Pivot
     Inventory_Report_Pivot = inventory_asin_totals.merge(inventory_sku_map, on="asin", how="left")
     
+    # Map reserve columns to Inventory Report Pivot
+    Inventory_Report_Pivot["asin"] = Inventory_Report_Pivot["asin"].astype(str).str.strip()
+    for col in reserve_cols:
+        Inventory_Report_Pivot[col] = Inventory_Report_Pivot["asin"].map(reserve_lookup[col]).fillna(0)
+        
     Inventory_Report_Pivot["Total Stock"] = (
-        Inventory_Report_Pivot["afn-fulfillable-quantity"] + 
-        Inventory_Report_Pivot["afn-reserved-quantity"]
+        Inventory_Report_Pivot["afn-fulfillable-quantity"] - 
+        Inventory_Report_Pivot["reserved_customerorders"] + 
+        Inventory_Report_Pivot["reserved_fc-transfers"] + 
+        Inventory_Report_Pivot["reserved_fc-processing"]
     )
     
     # Read Purchase Master
@@ -531,12 +610,6 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     Inventory_Report_Pivot["Product Name"] = Inventory_Report_Pivot["asin"].map(pm_lookup["Product Name"])
     Inventory_Report_Pivot["CP"] = Inventory_Report_Pivot["asin"].map(pm_lookup["CP"])
     
-    # Reorder columns
-    Inventory_Report_Pivot = Inventory_Report_Pivot[[
-        "asin","sku", "Vendor SKU Codes", "Brand", "Brand Manager", 
-        "Product Name", "afn-fulfillable-quantity", 
-        "afn-reserved-quantity", "Total Stock", "CP"
-    ]]
     
     # Normalize both ASIN columns to string
     business_pivot["(Parent) ASIN"] = business_pivot["(Parent) ASIN"].astype(str).str.strip()
@@ -586,7 +659,8 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     
     # Final rounding and type enforcement for all numeric columns
     numeric_columns = [
-        "afn-fulfillable-quantity", "afn-reserved-quantity", "Total Stock", 
+        "afn-fulfillable-quantity", "afn-reserved-quantity", "reserved_customerorders", 
+        "reserved_fc-transfers", "reserved_fc-processing", "Total Stock", 
         "CP", "Total Sales Order", "CP As Per Total Sale Qty", 
         "CP As Per Total Stock Qty", "DRR", "DOC"
     ]
@@ -598,6 +672,16 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     # Inventory_Report_Pivot = Inventory_Report_Pivot[
     #     Inventory_Report_Pivot["Total Sales Order"] != 0
     # ]
+    
+    # Reorder columns
+    ordered_cols = [
+        "asin", "sku", "Vendor SKU Codes", "Brand", "Brand Manager", 
+        "Product Name", "afn-fulfillable-quantity", "afn-reserved-quantity", 
+        "reserved_customerorders", "reserved_fc-transfers", "reserved_fc-processing", 
+        "Total Stock", "CP", "Total Sales Order", "CP As Per Total Sale Qty", 
+        "CP As Per Total Stock Qty", "DRR", "DOC"
+    ]
+    Inventory_Report_Pivot = Inventory_Report_Pivot[ordered_cols]
     
     # Create OOS Inventory (before adding grand total)
     OOS_Inventory = Inventory_Report_Pivot[
@@ -611,7 +695,12 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
     ].copy().reset_index(drop=True)
     
     # Add Grand Total to all reports (include DOC in numeric columns)
-    numeric_cols = ["afn-fulfillable-quantity", "afn-reserved-quantity", "Total Stock", "CP", "Total Sales Order", "CP As Per Total Sale Qty", "CP As Per Total Stock Qty", "DRR", "DOC"]
+    numeric_cols = [
+        "afn-fulfillable-quantity", "afn-reserved-quantity", "reserved_customerorders", 
+        "reserved_fc-transfers", "reserved_fc-processing", "Total Stock", "CP", 
+        "Total Sales Order", "CP As Per Total Sale Qty", 
+        "CP As Per Total Stock Qty", "DRR", "DOC"
+    ]
     Inventory_Report_Pivot = add_grand_total_row(Inventory_Report_Pivot, numeric_cols)
     OOS_Inventory = add_grand_total_row(OOS_Inventory, numeric_cols)
     Overstock_Inventory = add_grand_total_row(Overstock_Inventory, numeric_cols)
@@ -651,7 +740,7 @@ def process_inventory_report(inventory_file, purchase_master_file, business_pivo
 
     return Inventory_Report_Pivot, OOS_Inventory, Overstock_Inventory, OOS_Inventory_Pivot, Overstock_Inventory_Pivot
 
-def run_process(business_file, purchase_master_file, inventory_file, listing_file=None, 
+def run_process(business_file, purchase_master_file, inventory_file, reserve_file, listing_file=None, 
                 no_of_days=30, doc_threshold=30, no_of_days_inventory=30, 
                 doc_inventory_threshold=30, progress_cb=None):
     """Core logic for OOS tool, separated from UI."""
@@ -661,26 +750,26 @@ def run_process(business_file, purchase_master_file, inventory_file, listing_fil
         else: print(f"DEBUG: {text}")
 
     # Reset file pointers if they are file-like objects
-    for f in [business_file, purchase_master_file, inventory_file, listing_file]:
+    for f in [business_file, purchase_master_file, inventory_file, reserve_file, listing_file]:
         if f and hasattr(f, 'seek'):
             f.seek(0)
 
     # Process Business Report
     update_progress("📊 Processing Business Report...")
     Business_Pivot, OOS_Report, Overstock_Report, OOS_Pivot, Overstock_Pivot = process_business_report(
-        business_file, purchase_master_file, inventory_file, listing_file, 
+        business_file, purchase_master_file, inventory_file, reserve_file, listing_file, 
         no_of_days, doc_threshold
     )
     
     # Process Inventory Report
     update_progress("📦 Processing Inventory Report...")
     # Reset pointers for second pass
-    for f in [purchase_master_file, inventory_file]:
+    for f in [purchase_master_file, inventory_file, reserve_file]:
         if f and hasattr(f, 'seek'):
             f.seek(0)
             
     Inventory_Report_Pivot, OOS_Inventory, Overstock_Inventory, OOS_Inventory_Pivot, Overstock_Inventory_Pivot = process_inventory_report(
-        inventory_file, purchase_master_file, Business_Pivot, 
+        inventory_file, purchase_master_file, reserve_file, Business_Pivot, 
         no_of_days_inventory, doc_inventory_threshold
     )
     
@@ -706,6 +795,7 @@ st.sidebar.header("📁 Upload Files")
 business_file = st.sidebar.file_uploader("Business Report", type=['csv', 'xlsx'])
 purchase_master_file = st.sidebar.file_uploader("Purchase Master", type=['csv', 'xlsx'])
 inventory_file = st.sidebar.file_uploader("Manage Inventory", type=['csv', 'xlsx'])
+reserve_file = st.sidebar.file_uploader("Reserve In", type=['csv', 'xlsx'])
 listing_file = st.sidebar.file_uploader("Listing Status (Optional)", type=['csv', 'xlsx'])
 
 st.sidebar.header("⚙️ Parameters")
@@ -726,7 +816,7 @@ st.sidebar.markdown("🟤 **Brown (60-90)**: Excess")
 st.sidebar.markdown("⬛ **Black (>90)**: Overstocked")
 
 # Process data when all required files are uploaded
-if business_file and purchase_master_file and inventory_file:
+if business_file and purchase_master_file and inventory_file and reserve_file:
     try:
         # Create copies of file objects to avoid pointer issues
         import io
@@ -735,6 +825,7 @@ if business_file and purchase_master_file and inventory_file:
         business_file.seek(0)
         purchase_master_file.seek(0)
         inventory_file.seek(0)
+        reserve_file.seek(0)
         if listing_file:
             listing_file.seek(0)
         
@@ -742,34 +833,38 @@ if business_file and purchase_master_file and inventory_file:
         business_bytes = business_file.read()
         purchase_bytes = purchase_master_file.read()
         inventory_bytes = inventory_file.read()
+        reserve_bytes = reserve_file.read()
         listing_bytes = listing_file.read() if listing_file else None
         
         # Create new file-like objects
         business_io = io.BytesIO(business_bytes)
         purchase_io = io.BytesIO(purchase_bytes)
         inventory_io = io.BytesIO(inventory_bytes)
+        reserve_io = io.BytesIO(reserve_bytes)
         listing_io = io.BytesIO(listing_bytes) if listing_bytes else None
         
         # Set names for the file objects
         business_io.name = business_file.name
         purchase_io.name = purchase_master_file.name
         inventory_io.name = inventory_file.name
+        reserve_io.name = reserve_file.name
         if listing_io:
             listing_io.name = listing_file.name
         
         # Process Business Report
         Business_Pivot, OOS_Report, Overstock_Report, OOS_Pivot, Overstock_Pivot = process_business_report(
-            business_io, purchase_io, inventory_io, listing_io, 
+            business_io, purchase_io, inventory_io, reserve_io, listing_io, 
             no_of_days, doc_threshold
         )
         
         # Reset file pointers for inventory processing
         purchase_io.seek(0)
         inventory_io.seek(0)
+        reserve_io.seek(0)
         
         # Process Inventory Report
         Inventory_Report_Pivot, OOS_Inventory, Overstock_Inventory, OOS_Inventory_Pivot, Overstock_Inventory_Pivot = process_inventory_report(
-            inventory_io, purchase_io, Business_Pivot, 
+            inventory_io, purchase_io, reserve_io, Business_Pivot, 
             no_of_days_inventory, doc_inventory_threshold
         )
             
@@ -948,4 +1043,4 @@ if business_file and purchase_master_file and inventory_file:
         st.error(f"An error occurred: {str(e)}")
         st.exception(e)
 else:
-    st.info("👆 Please upload all required files (Business Report, Purchase Master, and Manage Inventory) to begin.")
+    st.info("👆 Please upload all required files (Business Report, Purchase Master, Manage Inventory, and Reserve In) to begin.")
