@@ -453,18 +453,18 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     # Reorder columns
     Business_Pivot = Business_Pivot[[
         "SKU","(Parent) ASIN", "Vendor SKU Codes", "Brand", "Product Name", 
-        "Brand Manager", "Total Sales Order", "CP", "DRR", "afn-warehouse-qty", 
+        "Brand Manager", "Total Sales Order", "CP", "afn-warehouse-qty", 
         "afn-reserved-qty", "reserved_customerorders", "reserved_fc-transfers", 
         "reserved_fc-processing", "Total Stock", "CP As Per Total Sale Qty", 
-        "CP As Per Total Stock Qty", "DOC", "seller-sku", "Listing Status"
+        "CP As Per Total Stock Qty", "DRR", "DOC", "seller-sku", "Listing Status"
     ]]
     
     # Add Grand Total to Business Pivot
     numeric_cols = [
         "Total Sales Order", "CP", "CP As Per Total Sale Qty", 
-        "CP As Per Total Stock Qty", "DRR", "afn-warehouse-qty", 
+        "CP As Per Total Stock Qty", "afn-warehouse-qty", 
         "afn-reserved-qty", "reserved_customerorders", "reserved_fc-transfers", 
-        "reserved_fc-processing", "Total Stock", "DOC"
+        "reserved_fc-processing", "Total Stock", "DRR", "DOC"
     ]
     Business_Pivot = add_grand_total_row(Business_Pivot, numeric_cols)
     
