@@ -376,7 +376,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     Inventory["sku"] = normalize_sku(Inventory["sku"])
     
     # Clean inventory quantities
-    for col in ["afn-fulfillable-quantity", "afn-reserved-quantity"]:
+    for col in ["afn-warehouse-quantity", "afn-reserved-quantity"]:
         if col in Inventory.columns:
             Inventory[col] = (
                 Inventory[col]
@@ -392,13 +392,13 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     inventory_pivot = pd.pivot_table(
         Inventory,
         index="asin",
-        values=["afn-fulfillable-quantity", "afn-reserved-quantity"],
+        values=["afn-warehouse-quantity", "afn-reserved-quantity"],
         aggfunc="sum"
     )
     inventory_pivot = inventory_pivot.reset_index()
     inventory_pivot.rename(
         columns={
-            "afn-fulfillable-quantity": "afn-fulfillable-qty",
+            "afn-warehouse-quantity": "afn-warehouse-qty",
             "afn-reserved-quantity": "afn-reserved-qty"
         },
         inplace=True
@@ -409,9 +409,9 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     for col in reserve_cols:
         inventory_pivot[col] = inventory_pivot["asin"].map(reserve_lookup[col]).fillna(0)
         
-    # Updated Total Stock formula: afn-fulfillable-qty - reserved_customerorders + reserved_fc-transfers + reserved_fc-processing
+    # Updated Total Stock formula: afn-warehouse-qty - reserved_customerorders + reserved_fc-transfers + reserved_fc-processing
     inventory_pivot["Total Stock"] = (
-        inventory_pivot["afn-fulfillable-qty"] - 
+        inventory_pivot["afn-warehouse-qty"] - 
         inventory_pivot["reserved_customerorders"] + 
         inventory_pivot["reserved_fc-transfers"] + 
         inventory_pivot["reserved_fc-processing"]
@@ -419,7 +419,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     
     # Map inventory to Business Pivot
     inventory_lookup = inventory_pivot.drop_duplicates(subset="asin", keep="first").set_index("asin")
-    Business_Pivot["afn-fulfillable-qty"] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup["afn-fulfillable-qty"])
+    Business_Pivot["afn-warehouse-qty"] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup["afn-warehouse-qty"])
     Business_Pivot["afn-reserved-qty"] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup["afn-reserved-qty"])
     
     # Map additional reserve columns to Business Pivot
@@ -437,7 +437,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     
     # Final rounding and type enforcement for all numeric columns
     numeric_columns = [
-        "Total Sales Order", "CP", "DRR", "afn-fulfillable-qty", 
+        "Total Sales Order", "CP", "DRR", "afn-warehouse-qty", 
         "afn-reserved-qty", "reserved_customerorders", "reserved_fc-transfers", 
         "reserved_fc-processing", "Total Stock", "CP As Per Total Sale Qty", 
         "CP As Per Total Stock Qty", "DOC"
@@ -453,7 +453,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     # Reorder columns
     Business_Pivot = Business_Pivot[[
         "SKU","(Parent) ASIN", "Vendor SKU Codes", "Brand", "Product Name", 
-        "Brand Manager", "Total Sales Order", "CP", "DRR", "afn-fulfillable-qty", 
+        "Brand Manager", "Total Sales Order", "CP", "DRR", "afn-warehouse-qty", 
         "afn-reserved-qty", "reserved_customerorders", "reserved_fc-transfers", 
         "reserved_fc-processing", "Total Stock", "CP As Per Total Sale Qty", 
         "CP As Per Total Stock Qty", "DOC", "seller-sku", "Listing Status"
@@ -462,7 +462,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     # Add Grand Total to Business Pivot
     numeric_cols = [
         "Total Sales Order", "CP", "CP As Per Total Sale Qty", 
-        "CP As Per Total Stock Qty", "DRR", "afn-fulfillable-qty", 
+        "CP As Per Total Stock Qty", "DRR", "afn-warehouse-qty", 
         "afn-reserved-qty", "reserved_customerorders", "reserved_fc-transfers", 
         "reserved_fc-processing", "Total Stock", "DOC"
     ]
@@ -470,7 +470,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     
     # Create OOS Report (before adding grand total)
     OOS_Report = Business_Pivot[Business_Pivot["SKU"] != "Grand Total"].copy()
-    OOS_Report = OOS_Report[OOS_Report["afn-fulfillable-qty"] == 0].reset_index(drop=True)
+    OOS_Report = OOS_Report[OOS_Report["afn-warehouse-qty"] == 0].reset_index(drop=True)
     
     # Ensure numeric columns for pivot and round to 2 decimals
     OOS_Report["CP"] = pd.to_numeric(OOS_Report["CP"], errors="coerce").fillna(0).round(2)
@@ -488,7 +488,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     # Add grand totals to reports (include DOC)
     numeric_cols = [
         "Total Sales Order", "CP", "CP As Per Total Sale Qty", 
-        "CP As Per Total Stock Qty", "DRR", "afn-fulfillable-qty", 
+        "CP As Per Total Stock Qty", "DRR", "afn-warehouse-qty", 
         "afn-reserved-qty", "reserved_customerorders", "reserved_fc-transfers", 
         "reserved_fc-processing", "Total Stock", "DOC"
     ]
@@ -532,7 +532,7 @@ def process_inventory_report(inventory_file, purchase_master_file, reserve_file,
     Inventory["sku"] = normalize_sku(Inventory["sku"])
     
     # Clean inventory quantities and Read Reserve Data
-    for col in ["afn-fulfillable-quantity", "afn-reserved-quantity"]:
+    for col in ["afn-warehouse-quantity", "afn-reserved-quantity"]:
         if col in Inventory.columns:
             Inventory[col] = (
                 Inventory[col]
@@ -568,7 +568,7 @@ def process_inventory_report(inventory_file, purchase_master_file, reserve_file,
 
     # First aggregate by ASIN to get total quantities per ASIN
     inventory_asin_totals = Inventory.groupby("asin", as_index=False).agg({
-        "afn-fulfillable-quantity": "sum",
+        "afn-warehouse-quantity": "sum",
         "afn-reserved-quantity": "sum"
     })
     
@@ -578,13 +578,19 @@ def process_inventory_report(inventory_file, purchase_master_file, reserve_file,
     # Merge to create Inventory Report Pivot
     Inventory_Report_Pivot = inventory_asin_totals.merge(inventory_sku_map, on="asin", how="left")
     
+    # Rename afn-warehouse-quantity to afn-warehouse-qty
+    Inventory_Report_Pivot.rename(
+        columns={"afn-warehouse-quantity": "afn-warehouse-qty", "afn-reserved-quantity": "afn-reserved-qty"},
+        inplace=True
+    )
+    
     # Map reserve columns to Inventory Report Pivot
     Inventory_Report_Pivot["asin"] = Inventory_Report_Pivot["asin"].astype(str).str.strip()
     for col in reserve_cols:
         Inventory_Report_Pivot[col] = Inventory_Report_Pivot["asin"].map(reserve_lookup[col]).fillna(0)
         
     Inventory_Report_Pivot["Total Stock"] = (
-        Inventory_Report_Pivot["afn-fulfillable-quantity"] - 
+        Inventory_Report_Pivot["afn-warehouse-qty"] - 
         Inventory_Report_Pivot["reserved_customerorders"] + 
         Inventory_Report_Pivot["reserved_fc-transfers"] + 
         Inventory_Report_Pivot["reserved_fc-processing"]
@@ -659,7 +665,7 @@ def process_inventory_report(inventory_file, purchase_master_file, reserve_file,
     
     # Final rounding and type enforcement for all numeric columns
     numeric_columns = [
-        "afn-fulfillable-quantity", "afn-reserved-quantity", "reserved_customerorders", 
+        "afn-warehouse-qty", "afn-reserved-qty", "reserved_customerorders", 
         "reserved_fc-transfers", "reserved_fc-processing", "Total Stock", 
         "CP", "Total Sales Order", "CP As Per Total Sale Qty", 
         "CP As Per Total Stock Qty", "DRR", "DOC"
@@ -676,7 +682,7 @@ def process_inventory_report(inventory_file, purchase_master_file, reserve_file,
     # Reorder columns
     ordered_cols = [
         "asin", "sku", "Vendor SKU Codes", "Brand", "Brand Manager", 
-        "Product Name", "afn-fulfillable-quantity", "afn-reserved-quantity", 
+        "Product Name", "afn-warehouse-qty", "afn-reserved-qty", 
         "reserved_customerorders", "reserved_fc-transfers", "reserved_fc-processing", 
         "Total Stock", "CP", "Total Sales Order", "CP As Per Total Sale Qty", 
         "CP As Per Total Stock Qty", "DRR", "DOC"
@@ -685,7 +691,7 @@ def process_inventory_report(inventory_file, purchase_master_file, reserve_file,
     
     # Create OOS Inventory (before adding grand total)
     OOS_Inventory = Inventory_Report_Pivot[
-        Inventory_Report_Pivot["afn-fulfillable-quantity"] == 0
+        Inventory_Report_Pivot["afn-warehouse-qty"] == 0
     ].copy().reset_index(drop=True)
     
     # Create Overstock Inventory (before adding grand total)
@@ -696,7 +702,7 @@ def process_inventory_report(inventory_file, purchase_master_file, reserve_file,
     
     # Add Grand Total to all reports (include DOC in numeric columns)
     numeric_cols = [
-        "afn-fulfillable-quantity", "afn-reserved-quantity", "reserved_customerorders", 
+        "afn-warehouse-qty", "afn-reserved-qty", "reserved_customerorders", 
         "reserved_fc-transfers", "reserved_fc-processing", "Total Stock", "CP", 
         "Total Sales Order", "CP As Per Total Sale Qty", 
         "CP As Per Total Stock Qty", "DRR", "DOC"
