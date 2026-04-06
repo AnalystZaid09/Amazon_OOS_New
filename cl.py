@@ -412,9 +412,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     # Updated Total Stock formula: afn-warehouse-qty - reserved_customerorders + reserved_fc-transfers + reserved_fc-processing
     inventory_pivot["Total Stock"] = (
         inventory_pivot["afn-warehouse-qty"] - 
-        inventory_pivot["reserved_customerorders"] + 
-        inventory_pivot["reserved_fc-transfers"] + 
-        inventory_pivot["reserved_fc-processing"]
+        inventory_pivot["reserved_customerorders"]
     )
     
     # Map inventory to Business Pivot
