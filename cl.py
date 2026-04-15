@@ -589,9 +589,7 @@ def process_inventory_report(inventory_file, purchase_master_file, reserve_file,
         
     Inventory_Report_Pivot["Total Stock"] = (
         Inventory_Report_Pivot["afn-warehouse-qty"] - 
-        Inventory_Report_Pivot["reserved_customerorders"] + 
-        Inventory_Report_Pivot["reserved_fc-transfers"] + 
-        Inventory_Report_Pivot["reserved_fc-processing"]
+        Inventory_Report_Pivot["reserved_customerorders"]
     )
     
     # Read Purchase Master
