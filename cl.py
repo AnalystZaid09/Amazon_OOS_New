@@ -57,7 +57,7 @@ def create_stock_pivot(df):
 
     pivot = pd.pivot_table(
         df,
-        index=["Brand", "(Parent) ASIN", "SKU"],
+        index=["Brand", "(Child) ASIN", "SKU"],
         values=["DOC", "DRR", "CP"],
         aggfunc="sum"
     )
@@ -271,25 +271,25 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     # Create Business Pivot (Aggregated by ASIN)
     Business_Pivot = pd.pivot_table(
         Business_Report,
-        index=["(Parent) ASIN"],
+        index=["(Child) ASIN"],
         values="Total Sales Order",
         aggfunc="sum"
     )
     Business_Pivot = Business_Pivot.reset_index()
     
-    # Get associated SKUs and Listing Status for each (Parent) ASIN
+    # Get associated SKUs and Listing Status for each (Child) ASIN
     # We take the first non-null seller-sku and check if ANY sku is closing
     def aggregate_skus(series):
         return ", ".join(series.unique())
 
-    Aggregation_Data = Business_Report.groupby("(Parent) ASIN").agg({
+    Aggregation_Data = Business_Report.groupby("(Child) ASIN").agg({
         "SKU": aggregate_skus,
         "seller-sku": lambda x: ", ".join(x.dropna().unique()) if x.dropna().any() else "",
         "Is_Closing": "any"
     }).reset_index()
     
     # Merge back to the Business Pivot
-    Business_Pivot = Business_Pivot.merge(Aggregation_Data, on="(Parent) ASIN", how="left")
+    Business_Pivot = Business_Pivot.merge(Aggregation_Data, on="(Child) ASIN", how="left")
     
     # Add Listing Status column based on any SKU being closing
     Business_Pivot["Listing Status"] = Business_Pivot["Is_Closing"].map({True: "Closed", False: ""})
@@ -306,7 +306,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     purchase_master["Amazon Sku Name"] = normalize_sku(purchase_master["Amazon Sku Name"])
     
     # Prepare data for mapping
-    Business_Pivot["(Parent) ASIN"] = Business_Pivot["(Parent) ASIN"].astype(str).str.strip()
+    Business_Pivot["(Child) ASIN"] = Business_Pivot["(Child) ASIN"].astype(str).str.strip()
     purchase_master["ASIN"] = purchase_master["ASIN"].astype(str).str.strip()
 
     # Step-by-step mapping from Purchase Master using ASIN
@@ -318,10 +318,10 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     product_map = pm_asin_lookup.set_index("ASIN")["Product Name"]
     manager_map = pm_asin_lookup.set_index("ASIN")["Brand Manager"]
     
-    Business_Pivot["Vendor SKU Codes"] = Business_Pivot["(Parent) ASIN"].map(vendor_sku_map).astype(str).replace(['nan', 'None', ''], pd.NA).fillna("")
-    Business_Pivot["Brand"] = Business_Pivot["(Parent) ASIN"].map(brand_map)
-    Business_Pivot["Product Name"] = Business_Pivot["(Parent) ASIN"].map(product_map)
-    Business_Pivot["Brand Manager"] = Business_Pivot["(Parent) ASIN"].map(manager_map)
+    Business_Pivot["Vendor SKU Codes"] = Business_Pivot["(Child) ASIN"].map(vendor_sku_map).astype(str).replace(['nan', 'None', ''], pd.NA).fillna("")
+    Business_Pivot["Brand"] = Business_Pivot["(Child) ASIN"].map(brand_map)
+    Business_Pivot["Product Name"] = Business_Pivot["(Child) ASIN"].map(product_map)
+    Business_Pivot["Brand Manager"] = Business_Pivot["(Child) ASIN"].map(manager_map)
     
     # Aggregate CP by ASIN (Ensure numeric first)
     purchase_master["CP"] = pd.to_numeric(purchase_master["CP"], errors="coerce").fillna(0)
@@ -335,7 +335,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     purchase_master_cp = purchase_master_cp.set_index("ASIN")
 
     # Map summed CP to pivot
-    Business_Pivot["CP"] = Business_Pivot["(Parent) ASIN"].map(purchase_master_cp["CP"])
+    Business_Pivot["CP"] = Business_Pivot["(Child) ASIN"].map(purchase_master_cp["CP"])
 
     # Fill missing mapping values with 0/empty as appropriate
     cols_to_fill_zero = ["Total Sales Order", "CP"]
@@ -417,14 +417,14 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     
     # Map inventory to Business Pivot
     inventory_lookup = inventory_pivot.drop_duplicates(subset="asin", keep="first").set_index("asin")
-    Business_Pivot["afn-warehouse-qty"] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup["afn-warehouse-qty"])
-    Business_Pivot["afn-reserved-qty"] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup["afn-reserved-qty"])
+    Business_Pivot["afn-warehouse-qty"] = Business_Pivot["(Child) ASIN"].map(inventory_lookup["afn-warehouse-qty"])
+    Business_Pivot["afn-reserved-qty"] = Business_Pivot["(Child) ASIN"].map(inventory_lookup["afn-reserved-qty"])
     
     # Map additional reserve columns to Business Pivot
     for col in reserve_cols:
-        Business_Pivot[col] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup[col]).fillna(0)
+        Business_Pivot[col] = Business_Pivot["(Child) ASIN"].map(inventory_lookup[col]).fillna(0)
         
-    Business_Pivot["Total Stock"] = Business_Pivot["(Parent) ASIN"].map(inventory_lookup["Total Stock"])
+    Business_Pivot["Total Stock"] = Business_Pivot["(Child) ASIN"].map(inventory_lookup["Total Stock"])
     
     # Calculate CP calculations
     Business_Pivot["CP As Per Total Sale Qty"] = (Business_Pivot["Total Sales Order"] * Business_Pivot["CP"]).round(2)
@@ -450,7 +450,7 @@ def process_business_report(business_file, purchase_master_file, inventory_file,
     
     # Reorder columns
     Business_Pivot = Business_Pivot[[
-        "SKU","(Parent) ASIN", "Vendor SKU Codes", "Brand", "Product Name", 
+        "SKU","(Child) ASIN", "Vendor SKU Codes", "Brand", "Product Name", 
         "Brand Manager", "Total Sales Order", "CP", "afn-warehouse-qty", 
         "afn-reserved-qty", "reserved_customerorders", "reserved_fc-transfers", 
         "reserved_fc-processing", "Total Stock", "CP As Per Total Sale Qty", 
@@ -614,12 +614,12 @@ def process_inventory_report(inventory_file, purchase_master_file, reserve_file,
     
     
     # Normalize both ASIN columns to string
-    business_pivot["(Parent) ASIN"] = business_pivot["(Parent) ASIN"].astype(str).str.strip()
+    business_pivot["(Child) ASIN"] = business_pivot["(Child) ASIN"].astype(str).str.strip()
     Inventory_Report_Pivot["asin"] = Inventory_Report_Pivot["asin"].astype(str).str.strip()
 
     # Create lookup with unique index by summing duplicates
-    business_lookup = business_pivot[business_pivot["SKU"] != "Grand Total"].groupby("(Parent) ASIN", as_index=False)["Total Sales Order"].sum()
-    business_lookup = business_lookup.set_index("(Parent) ASIN")
+    business_lookup = business_pivot[business_pivot["SKU"] != "Grand Total"].groupby("(Child) ASIN", as_index=False)["Total Sales Order"].sum()
+    business_lookup = business_lookup.set_index("(Child) ASIN")
     business_lookup.index = business_lookup.index.astype(str)
 
     # Map using ASIN instead of SKU
